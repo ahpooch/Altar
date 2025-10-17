@@ -1,0 +1,13 @@
+First line.
+
+{% if fact -%}
+  fact is true
+{% elif fact2 -%}
+  fact2 is true
+{% elif fact3 -%}
+  fact3 is true
+{% else -%}
+  all facts are false
+{% endif -%}
+
+Last line.

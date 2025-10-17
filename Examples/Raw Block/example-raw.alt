@@ -1,0 +1,9 @@
+First line.
+
+{% raw %}
+This section will not be processed by Altar.
+You can include {{ variables }} or {% for loops %} here,
+and they will be displayed as literal text.
+{% endraw %}
+
+Last line.

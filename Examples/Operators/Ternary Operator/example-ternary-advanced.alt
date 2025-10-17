@@ -1,0 +1,13 @@
+{# Advanced ternary operator examples #}
+
+{# Nested ternary operators #}
+Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 else 'F' }}
+
+{# With filters #}
+Name: {{ name | upper if show_uppercase else name | lower }}
+
+{# Complex expression in condition #}
+Access: {{ 'Granted' if user.role == 'admin' and user.active else 'Denied' }}
+
+{# Ternary in property access #}
+Value: {{ obj.success_value if obj.is_success else obj.error_value }}

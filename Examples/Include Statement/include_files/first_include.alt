@@ -1,0 +1,2 @@
+This is a first_include.alt text.
+    Variable var is: {{ var }}

@@ -1,0 +1,9 @@
+First line.
+
+{% block title -%}Default title{% endblock -%}
+
+{% block content -%}
+  Default content.
+{% endblock -%}
+
+Last line.

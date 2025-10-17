@@ -1,0 +1,9 @@
+First line.
+
+{% if fact -%}
+  fact is true
+{% else -%}
+  fact is false
+{% endif -%}
+
+Last line.

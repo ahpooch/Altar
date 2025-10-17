@@ -1,0 +1,7 @@
+First line.
+
+{% for item in items -%}
+  - {{ item }}
+{% endfor -%}
+
+Last line.

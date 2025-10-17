@@ -1,0 +1,8 @@
+{# Simple ternary operator example #}
+Result: {{ 'yes' if true else 'no' }}
+
+{# With variable #}
+Status: {{ 'Active' if is_active else 'Inactive' }}
+
+{# With comparison #}
+Age group: {{ 'Adult' if age >= 18 else 'Minor' }}

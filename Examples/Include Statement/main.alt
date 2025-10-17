@@ -1,0 +1,9 @@
+First line.
+{% include 'include_files/first_include.alt' -%}
+    Hellow {{ username }}
+    {{ content }}
+{% include 'include_files/second_include.alt' -%}
+{% include 'nonexistent.alt' ignore missing -%}
+{% include ['nonexistent.alt','nonexisten2.alt'] ignore missing -%}
+{% include ['nonexistent.alt','include_files/third_include.alt'] -%}
+Last line.

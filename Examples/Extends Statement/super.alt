@@ -1,0 +1,6 @@
+{% extends "base.alt" -%}
+{% block content -%}
+  Some text.
+{{ super() }}
+  Additional content after the default content from base.alt template.
+{% endblock -%}

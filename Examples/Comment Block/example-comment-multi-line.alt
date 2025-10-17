@@ -1,0 +1,7 @@
+First line.
+{#
+This is a multi-line comment.
+It can span across several lines
+within your Altar template.
+-#}
+Last line.

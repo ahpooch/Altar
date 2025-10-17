@@ -1,0 +1,9 @@
+First line.
+
+{% for item in items -%}
+  - {{ item }}
+{% else -%}
+    items is empty.
+{% endfor -%}
+
+Last line.
