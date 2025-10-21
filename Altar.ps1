@@ -156,6 +156,7 @@ class Lexer {
         'powershell' = $true  # PowerShell execution block
         'endpowershell' = $true  # End of PowerShell block
         'catch'   = $true   # Catch block for error handling
+        'set'     = $true   # Variable assignment
     }
     
     # Main tokenization method that converts template text into a list of tokens
@@ -780,6 +781,18 @@ class PowerShellBlockNode : StatementNode {
     }
 }
 
+# Represents a variable assignment statement ({% set variable = value %})
+# Allows setting variables within the template
+class SetNode : StatementNode {
+    [string]$VariableName      # The name of the variable to set
+    [ExpressionNode]$Value     # The value to assign to the variable
+    
+    SetNode([string]$variableName, [ExpressionNode]$value, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.VariableName = $variableName
+        $this.Value = $value
+    }
+}
+
 # Root node representing an entire template
 # Contains all statements and manages template inheritance
 class TemplateNode : ASTNode {
@@ -1015,6 +1028,7 @@ class Parser {
             "powershell" { return $this.ParsePowerShell($startToken) }
             "endpowershell" { return $null } # Just ending powershell block
             "catch" { return $null } # Handled in ParsePowerShell
+            "set" { return $this.ParseSet($startToken) }
             default { throw "Unknown block keyword: $($keyword.Value)" }
         }
         return $null # only for PSScriptAnalyzer because it cannot understand derfault statement in switch
@@ -1814,6 +1828,23 @@ class Parser {
         return $forNode
     }
     
+    # Parse a set statement {% set variable = value %}
+    [SetNode]ParseSet([Token]$startToken) {
+        # Expect variable name
+        $variableName = $this.Expect([TokenType]::IDENTIFIER).Value
+        
+        # Expect '=' operator
+        $this.Expect([TokenType]::OPERATOR, "=")
+        
+        # Parse the value expression
+        $value = $this.ParseExpression()
+        
+        # Expect closing %}
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        return [SetNode]::new($variableName, $value, $startToken.Line, $startToken.Column, $startToken.Filename)
+    }
+    
     # Parse a comment block {# ... #}
     # Comments are ignored in the output
     [void]ParseComment() {
@@ -2033,10 +2064,31 @@ class Parser {
                 }
             }
             ([TokenType]::PUNCTUATION) {
-                # Parenthesized expression (e.g., (a + b))
+                # Parenthesized expression (e.g., (a + b)) or array literal (e.g., [1, 2, 3])
                 if ($token.Value -eq '(') {
                     $expr = $this.ParseExpression()  # Parse the expression inside the parentheses
                     $this.Expect([TokenType]::PUNCTUATION, ')', $null)  # Expect closing parenthesis
+                }
+                elseif ($token.Value -eq '[') {
+                    # Array literal - parse elements
+                    $elements = [System.Collections.Generic.List[ExpressionNode]]::new()
+                    
+                    # Parse array elements
+                    while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, "]")) {
+                        $element = $this.ParseExpression()
+                        $elements.Add($element)
+                        
+                        # Check for comma (multiple elements)
+                        if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                            $this.Consume() # Consume ','
+                        } else {
+                            # No comma, expect closing bracket
+                            break
+                        }
+                    }
+                    
+                    $this.Expect([TokenType]::PUNCTUATION, "]")
+                    $expr = [ArrayLiteralNode]::new($elements.ToArray(), $token.Line, $token.Column, $token.Filename)
                 }
             }
             default {
@@ -2121,6 +2173,7 @@ class PowershellCompiler {
             "IncludeNode" { $this.VisitInclude([IncludeNode]$node) }  # Template inclusion {% include ... %}
             "RawNode" { $this.VisitRaw([RawNode]$node) }              # Raw block {% raw ... %}
             "PowerShellBlockNode" { $this.VisitPowerShellBlock([PowerShellBlockNode]$node) }  # PowerShell execution block {% powershell ... %}
+            "SetNode" { $this.VisitSet([SetNode]$node) }              # Variable assignment {% set ... %}
             default { throw "Unknown node type: $($node.GetType().Name)" }
         }
     }
@@ -2527,6 +2580,15 @@ class PowershellCompiler {
             $this.IndentLevel--
             $this.AppendLine("}")
         }
+    }
+    
+    [void]VisitSet([SetNode]$node) {
+        # Generate variable assignment
+        $value = $this.VisitExpression($node.Value)
+        $this.AppendLine("`$$($node.VariableName) = $value")
+        
+        # Also update the context so the variable is available in included templates
+        $this.AppendLine("`$Context['$($node.VariableName)'] = `$$($node.VariableName)")
     }
     
     [string]VisitExpression([ExpressionNode]$node) {
