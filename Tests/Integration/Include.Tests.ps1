@@ -387,10 +387,9 @@ Included
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            # The {%- doesn't trim the newline after included content (known limitation)
+            # {%- removes ALL whitespace BEFORE the tag, including newline and leading spaces
             $expected = @"
-Before
-Included
+BeforeIncluded
 After
 "@
             $result | Should -Be $expected
@@ -418,11 +417,9 @@ Included
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            # Both {%- and -%} trim, but -%} removes the newline after included content
-            $expected = @"
-Before
-IncludedAfter
-"@
+            # {%- removes whitespace before, -%} removes whitespace after
+            # This creates compact output
+            $expected = "BeforeIncludedAfter"
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force

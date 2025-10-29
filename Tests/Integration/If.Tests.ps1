@@ -448,9 +448,9 @@ Line 2
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {%- removes ALL whitespace BEFORE the tag, including newline and leading spaces
             $expected = @"
-Line 1
-Content
+Line 1Content
 Line 2
 "@
             $result | Should -Be $expected
@@ -492,11 +492,9 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = @"
-Before
-Content
-After
-"@
+            # {%- removes whitespace before, -%} removes whitespace after
+            # This creates compact output
+            $expected = "BeforeContentAfter"
             $result | Should -Be $expected
         }
         

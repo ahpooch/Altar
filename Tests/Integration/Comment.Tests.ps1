@@ -371,9 +371,7 @@ Content
             $result | Should -Be $expected
         }
         
-        It "Handles comment inside if block" -Skip {
-            # NOTE: This is a known limitation - comments inside control blocks
-            # cause the parser to stop processing remaining content in that block
+        It "Handles comment inside if block" {
             $template = @"
 {% if fact -%}
 Before comment
@@ -394,9 +392,7 @@ After comment
             $result | Should -Be $expected
         }
         
-        It "Handles comment inside else block" -Skip {
-            # NOTE: This is a known limitation - comments inside control blocks
-            # cause the parser to stop processing remaining content in that block
+        It "Handles comment inside else block" {
             $template = @"
 {% if fact -%}
 If content
@@ -436,9 +432,7 @@ Else content
             $result | Should -Be $expected
         }
         
-        It "Handles comment inside for loop" -Skip {
-            # NOTE: This is a known limitation - comments inside control blocks
-            # cause the parser to stop processing remaining content in that block
+        It "Handles comment inside for loop" {
             $template = @"
 {% for item in items -%}
 {# Processing item -#}
@@ -496,9 +490,7 @@ Second
     }
     
     Context "Nested and Complex Comments" {
-        It "Handles comment inside nested if statements" -Skip {
-            # NOTE: This is a known limitation - comments inside control blocks
-            # cause the parser to stop processing remaining content in that block
+        It "Handles comment inside nested if statements" {
             $template = @"
 {% if outer -%}
 Outer
@@ -564,9 +556,7 @@ End
             $result | Should -Be $expected
         }
         
-        It "Handles comment in complex template structure" -Skip {
-            # NOTE: This is a known limitation - comments inside control blocks
-            # cause the parser to stop processing remaining content in that block
+        It "Handles comment in complex template structure" {
             $template = @"
 {# Header comment -#}
 {% for user in users -%}

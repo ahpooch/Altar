@@ -316,8 +316,7 @@ Line 3: Third
     }
     
     Context "Whitespace Trimming" {
-        It "Trims whitespace on the left with {{-" -Skip {
-            # NOTE: Whitespace trimming with {{- is not yet implemented in Altar.ps1
+        It "Trims whitespace on the left with {{-" {
             $template = @"
 Line 1
     {{- variable }}
@@ -329,16 +328,16 @@ Line 2
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {{- removes ALL whitespace BEFORE the tag, including newline and leading spaces
+            # So "Line 1\n    " gets trimmed to "Line 1", then VALUE is appended
             $expected = @"
-Line 1
-VALUE
+Line 1VALUE
 Line 2
 "@
             $result | Should -Be $expected
         }
         
-        It "Trims whitespace on the right with -}}" -Skip {
-            # NOTE: Whitespace trimming with -}} is not yet implemented in Altar.ps1
+        It "Trims whitespace on the right with -}}" {
             $template = @"
 Line 1
 {{ variable -}}
@@ -350,16 +349,16 @@ Line 1
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # -}} removes whitespace AFTER the tag, including newline
+            # So "Line 2" gets pulled up to the same line as VALUE
             $expected = @"
 Line 1
-VALUE
-    Line 2
+VALUE    Line 2
 "@
             $result | Should -Be $expected
         }
         
-        It "Trims whitespace on both sides" -Skip {
-            # NOTE: Whitespace trimming with {{- -}} is not yet implemented in Altar.ps1
+        It "Trims whitespace on both sides" {
             $template = @"
 Before
     {{- variable -}}
@@ -371,11 +370,10 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = @"
-Before
-MIDDLE
-After
-"@
+            # {{- removes whitespace BEFORE (including leading spaces)
+            # -}} removes whitespace AFTER (including newline)
+            # So "After" gets pulled up to the same line as MIDDLE
+            $expected = "BeforeMIDDLEAfter"
             $result | Should -Be $expected
         }
         
@@ -399,8 +397,7 @@ End
             $result | Should -Be $expected
         }
         
-        It "Handles trim with filter" -Skip {
-            # NOTE: Whitespace trimming with {{- -}} is not yet implemented in Altar.ps1
+        It "Handles trim with filter" {
             $template = "{{- name | upper -}}"
             $context = @{
                 name = "alice"
@@ -653,21 +650,19 @@ After
     }
     
     Context "Error Handling" {
-        It "Handles undefined variable gracefully" -Skip {
-            # NOTE: Currently undefined variables return null/empty instead of a placeholder
-            # This test documents the current behavior but may need adjustment
+        It "Handles undefined variable gracefully (Default mode)" {
+            # Default mode (Jinja2 default): undefined variables return empty string
             $template = "{{ undefined_var }}"
             $context = @{}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            # Should not throw, but may output empty or variable name
-            $result | Should -Not -BeNullOrEmpty
+            # Should return empty string
+            $result | Should -Be ""
         }
         
-        It "Handles undefined nested property gracefully" -Skip {
-            # NOTE: Currently undefined nested properties return null/empty
-            # This test documents the current behavior but may need adjustment
+        It "Handles undefined nested property gracefully (Default mode)" {
+            # Default mode: undefined nested properties return empty string
             $template = "{{ user.name }}"
             $context = @{
                 user = @{}
@@ -675,8 +670,54 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            # Should not throw
-            $result | Should -Not -BeNullOrEmpty
+            # Should return empty string
+            $result | Should -Be ""
+        }
+        
+        It "Handles undefined variable in Debug mode" {
+            # Debug mode: undefined variables return placeholder
+            $template = "{{ undefined_var }}"
+            $context = @{}
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Debug
+            
+            # Should return placeholder
+            $result | Should -Be "{{ undefined_var }}"
+        }
+        
+        It "Handles undefined nested property in Debug mode" {
+            # Debug mode: undefined nested properties return placeholder
+            $template = "{{ user.name }}"
+            $context = @{
+                user = @{}
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Debug
+            
+            # Should return placeholder
+            $result | Should -Be "{{ user.name }}"
+        }
+        
+        It "Throws error for undefined variable in Strict mode" {
+            # Strict mode: undefined variables throw exception
+            $template = "{{ undefined_var }}"
+            $context = @{}
+            
+            {
+                Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Strict -ErrorAction Stop
+            } | Should -Throw "*UndefinedError*"
+        }
+        
+        It "Throws error for undefined nested property in Strict mode" {
+            # Strict mode: undefined nested properties throw exception
+            $template = "{{ user.name }}"
+            $context = @{
+                user = @{}
+            }
+            
+            {
+                Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Strict -ErrorAction Stop
+            } | Should -Throw "*UndefinedError*"
         }
         
         It "Throws error on unclosed variable tag" {

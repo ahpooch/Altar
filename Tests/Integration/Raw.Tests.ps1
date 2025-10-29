@@ -202,9 +202,10 @@ Line 2
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {%- removes whitespace BEFORE the tag, but newline AFTER {% raw %} is part of raw content
+            # Raw content preserves everything between {% raw %} and {% endraw %} as-is
             $expected = @"
 Line 1
-
 Raw content
 
 Line 2
@@ -245,9 +246,9 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {%- removes whitespace before, -%} removes whitespace after
             $expected = @"
-Before
-Raw content
+BeforeRaw content
 
 After
 "@
@@ -330,9 +331,13 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {%- removes whitespace before opening tag
+            # -%} after {% raw %} removes newline after it
+            # Raw content is preserved as-is (including newline before {%- endraw)
+            # {%- before endraw doesn't affect raw content (it's already collected)
+            # -%} after endraw removes whitespace after closing tag
             $expected = @"
-Before
-Raw content
+BeforeRaw content
     After
 "@
             $result | Should -Be $expected

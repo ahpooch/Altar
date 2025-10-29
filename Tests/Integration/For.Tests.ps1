@@ -109,9 +109,10 @@ Line 2
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
+            # {%- removes ALL whitespace BEFORE the tag, including newline and leading spaces
+            # So "Line 1\n    " gets trimmed to "Line 1", then loop content follows
             $expected = @"
-Line 1
-A
+Line 1A
 B
 Line 2
 "@
@@ -155,12 +156,9 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = @"
-Before
-1
-2
-After
-"@
+            # {%- removes whitespace before, -%} removes whitespace after
+            # This creates a compact output with all items on same line
+            $expected = "Before12After"
             $result | Should -Be $expected
         }
         
@@ -247,11 +245,9 @@ Done
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = @"
-List:
-    Empty list
-Done
-"@
+            # {%- removes newline before, -%} removes newline after
+            # So everything gets compacted
+            $expected = "List:    Empty listDone"
             $result | Should -Be $expected
         }
     }

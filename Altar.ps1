@@ -1,3 +1,20 @@
+# Enum defining behavior for undefined variables (Jinja2 compatibility)
+enum UndefinedBehavior {
+    Default          # Return empty string for undefined variables (Jinja2 default)
+    Strict           # Throw exception when accessing undefined variables
+    Debug            # Return placeholder string like {{ variable_name }}
+    Chainable        # Allow chaining on undefined variables without errors
+}
+
+# Class representing template environment settings (Jinja2 compatibility)
+class TemplateEnvironment {
+    [UndefinedBehavior]$UndefinedBehavior = [UndefinedBehavior]::Default
+    
+    TemplateEnvironment() {
+        $this.UndefinedBehavior = [UndefinedBehavior]::Default
+    }
+}
+
 # Enum defining all possible token types used in the template lexer
 # These token types represent the different elements that can be found in a template
 enum TokenType {
@@ -124,6 +141,8 @@ class Lexer {
     # Template syntax delimiters
     static [string]$VARIABLE_START = '{{'    # Start of variable expression
     static [string]$VARIABLE_END = '}}'      # End of variable expression
+    static [string]$VARIABLE_START_TRIM = '{{-' # Start of variable with whitespace trimming
+    static [string]$VARIABLE_END_TRIM = '-}}'   # End of variable with whitespace trimming
     static [string]$BLOCK_START = '{%'       # Start of block expression
     static [string]$BLOCK_END = '%}'         # End of block expression
     static [string]$BLOCK_START_TRIM = '{%-' # Start of block with whitespace trimming
@@ -397,12 +416,27 @@ class Lexer {
         if ($char -eq '{') {
             $nextChar = $state.PeekOffset(1)
             switch ($nextChar) {
-                # Variable tag: {{ ... }}
+                # Variable tag: {{ ... }} or {{- ... }}
                 '{' {
+                    # Check for whitespace trimming syntax: {{- ... }}
+                    $hasTrimBefore = $false
+                    if ($state.PeekOffset(2) -eq '-') {
+                        $hasTrimBefore = $true
+                        # Trim whitespace BEFORE adding the token
+                        $this.TrimWhitespaceBefore($tokens)
+                    }
+                    
                     $state.CaptureStart()
                     $state.Consume()  # Consume '{'
                     $state.Consume()  # Consume '{'
-                    $tokens.Add([Token]::new([TokenType]::VARIABLE_START, [Lexer]::VARIABLE_START, $state.StartLine, $state.StartColumn, $state.Filename))
+                    
+                    if ($hasTrimBefore) {
+                        $state.Consume()  # Consume '-'
+                        $tokens.Add([Token]::new([TokenType]::VARIABLE_START, [Lexer]::VARIABLE_START_TRIM, $state.StartLine, $state.StartColumn, $state.Filename))
+                    } else {
+                        $tokens.Add([Token]::new([TokenType]::VARIABLE_START, [Lexer]::VARIABLE_START, $state.StartLine, $state.StartColumn, $state.Filename))
+                    }
+                    
                     $state.States.Push("VARIABLE")  # Switch to VARIABLE state
                     return
                 }
@@ -503,14 +537,30 @@ class Lexer {
         # Check for closing tags
         $char = $state.Peek()
         
-        # Handle variable closing tag: }}
-        if ($mode -eq "VARIABLE" -and $char -eq '}' -and $state.PeekOffset(1) -eq '}') {
-            $state.CaptureStart()
-            $state.Consume()  # Consume '}'
-            $state.Consume()  # Consume '}'
-            $tokens.Add([Token]::new([TokenType]::VARIABLE_END, [Lexer]::VARIABLE_END, $state.StartLine, $state.StartColumn, $state.Filename))
-            $state.States.Pop()  # Return to previous state
-            return
+        # Handle variable closing tags: }} or -}}
+        if ($mode -eq "VARIABLE") {
+            # Check for whitespace trimming syntax: ... -}}
+            if ($char -eq '-' -and $state.PeekOffset(1) -eq '}' -and $state.PeekOffset(2) -eq '}') {
+                $state.CaptureStart()
+                $state.Consume()  # Consume '-'
+                $state.Consume()  # Consume '}'
+                $state.Consume()  # Consume '}'
+                $tokens.Add([Token]::new([TokenType]::VARIABLE_END, [Lexer]::VARIABLE_END_TRIM, $state.StartLine, $state.StartColumn, $state.Filename))
+                $state.States.Pop()  # Return to previous state
+                
+                # Trim whitespace after the tag
+                $this.TrimWhitespaceAfter($state)
+                return
+            }
+            # Regular variable end: }}
+            elseif ($char -eq '}' -and $state.PeekOffset(1) -eq '}') {
+                $state.CaptureStart()
+                $state.Consume()  # Consume '}'
+                $state.Consume()  # Consume '}'
+                $tokens.Add([Token]::new([TokenType]::VARIABLE_END, [Lexer]::VARIABLE_END, $state.StartLine, $state.StartColumn, $state.Filename))
+                $state.States.Pop()  # Return to previous state
+                return
+            }
         }
         
         # Handle block closing tags: %} or -%}
@@ -769,7 +819,7 @@ class Lexer {
         return $c -eq '|'
     }
     
-    # Trim whitespace before a tag when using the {%- syntax
+    # Trim whitespace before a tag when using the {{- or {%- syntax
     # This removes trailing whitespace from the previous text token
     [void]TrimWhitespaceBefore([System.Collections.Generic.List[Token]]$tokens) {
         # If there are no tokens or the last token is not TEXT, nothing to trim
@@ -781,10 +831,10 @@ class Lexer {
         $lastToken = $tokens[-1]
         $content = $lastToken.Value
         
-        # Trim trailing horizontal whitespace (spaces and tabs) on the last line only
-        # This preserves newlines but removes spaces/tabs before the tag
-        # Pattern: match any spaces/tabs at the end of the string
-        $trimmedContent = $content -replace '[ \t]+$', ''
+        # Trim ALL trailing whitespace (spaces, tabs, and newlines) before the tag
+        # This matches Jinja2 behavior where - removes all whitespace before the block
+        # Pattern: match any whitespace characters at the end of the string
+        $trimmedContent = $content -replace '[\s]+$', ''
         
         # If the content changed, update the token or remove it if it's empty
         if ($trimmedContent -ne $content) {
@@ -1061,6 +1111,12 @@ class RawNode : StatementNode {
     RawNode([string]$content, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
         $this.Content = $content
     }
+}
+
+# Represents a comment in the template ({# ... #})
+# Comments are ignored in the output but need to be tracked during parsing
+class CommentNode : StatementNode {
+    CommentNode([int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {}
 }
 
 # Represents an array literal in the template (e.g., ['item1', 'item2'])
@@ -1411,9 +1467,8 @@ class Parser {
             return $result
         }
         elseif ($token.Type -eq [TokenType]::COMMENT_START) {
-            # Comment {# ... #} - ignored in output
-            $this.ParseComment()
-            return $null
+            # Comment {# ... #} - return CommentNode instead of null
+            return $this.ParseComment()
         }
         elseif ($token.Type -eq [TokenType]::BLOCK_END) {
             # Skip BLOCK_END as it's handled in other methods
@@ -1833,7 +1888,7 @@ class Parser {
                         # Parse else branch
                         Write-Host "ParseIf: Starting to parse else branch"
                         while ($true) {
-                            # Check for endif tag
+                            # Check for endif or elif tag (elif should not appear in else branch, but we check to prevent infinite loop)
                             if (($this.Position + 1) -lt $this.Tokens.Count) {
                                 $currentToken = $this.Current()
                                 $nextToken = $this.PeekOffset(1)
@@ -1841,11 +1896,11 @@ class Parser {
                                 Write-Host "ParseIf: (else branch) Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
                                 Write-Host "ParseIf: (else branch) Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
                                 
-                                # Check if we've reached the endif tag
+                                # Check if we've reached the endif or elif tag
                                 if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                                     $nextToken.Type -eq [TokenType]::KEYWORD -and 
-                                    $nextToken.Value -eq 'endif') {
-                                    Write-Host "ParseIf: (else branch) Found endif tag"
+                                    $nextToken.Value -in @('endif', 'elif')) {
+                                    Write-Host "ParseIf: (else branch) Found $($nextToken.Value) tag"
                                     break
                                 }
                                 
@@ -1862,14 +1917,6 @@ class Parser {
                             $statement = $this.ParseStatement()
                             if ($null -ne $statement) {
                                 $ifNode.ElseBranch += $statement
-                            } else {
-                                # If ParseStatement returns null, we need to advance the position
-                                # to avoid an infinite loop
-                                if ($this.Position -lt $this.Tokens.Count) {
-                                    $this.Position++
-                                } else {
-                                    throw "Unexpected end of template. Expected: endif"
-                                }
                             }
                         }
                         
@@ -1913,14 +1960,6 @@ class Parser {
             $statement = $this.ParseStatement()
             if ($null -ne $statement) {
                 $ifNode.ThenBranch += $statement
-            } else {
-                # If ParseStatement returns null, we need to advance the position
-                # to avoid an infinite loop
-                if ($this.Position -lt $this.Tokens.Count) {
-                    $this.Position++
-                } else {
-                    throw "Unexpected end of template. Expected: endif"
-                }
             }
         }
         
@@ -1970,16 +2009,6 @@ class Parser {
             if ($null -ne $statement) {
                 Write-Host "ParseElif: Adding statement to ThenBranch"
                 $elifNode.ThenBranch += $statement
-            } else {
-                # If ParseStatement returns null, we need to advance the position
-                # to avoid an infinite loop
-                if ($this.Position -lt $this.Tokens.Count) {
-                    Write-Host "ParseElif: Advancing position"
-                    $this.Position++
-                } else {
-                    Write-Host "ParseElif: Reached end of tokens without finding else/elif/endif"
-                    throw "Unexpected end of template. Expected: endif"
-                }
             }
         }
         
@@ -2033,16 +2062,6 @@ class Parser {
                 if ($null -ne $statement) {
                     Write-Host "ParseElif: (else branch) Adding statement to ElseBranch"
                     $elifNode.ElseBranch += $statement
-                } else {
-                    # If ParseStatement returns null, we need to advance the position
-                    # to avoid an infinite loop
-                    if ($this.Position -lt $this.Tokens.Count) {
-                        Write-Host "ParseElif: (else branch) Advancing position"
-                        $this.Position++
-                    } else {
-                        Write-Host "ParseElif: (else branch) Reached end of tokens without finding endif"
-                        throw "Unexpected end of template. Expected: endif"
-                    }
                 }
             }
             
@@ -2132,13 +2151,6 @@ class Parser {
                 Write-Verbose "Parsed statement: $($statement.GetType().Name)"
                 $forNode.Body += $statement
                 Write-Verbose "Added statement to body"
-            } else {
-                Write-Verbose "Parsed statement is null, advancing position"
-                if ($this.Position -lt $this.Tokens.Count) {
-                    $this.Position++
-                } else {
-                    throw "Unexpected end of template. Expected: endfor"
-                }
             }
         }
         
@@ -2471,11 +2483,12 @@ class Parser {
     }
     
     # Parse a comment block {# ... #}
-    # Comments are ignored in the output
-    [void]ParseComment() {
-        $this.Expect([TokenType]::COMMENT_START)  # Consume the {# token
+    # Comments are ignored in the output but we return a CommentNode to track them
+    [CommentNode]ParseComment() {
+        $startToken = $this.Expect([TokenType]::COMMENT_START)  # Consume the {# token
         $this.Expect([TokenType]::COMMENT_END)    # Consume the #} token
-        # No AST node is created for comments as they don't affect the output
+        # Return a CommentNode so parsing loops know the comment was processed
+        return [CommentNode]::new($startToken.Line, $startToken.Column, $startToken.Filename)
     }
     
     # Parse an expression (entry point for expression parsing)
@@ -2861,6 +2874,7 @@ class PowershellCompiler {
     [hashtable]$Context
     [hashtable]$ParentBlocks  # Stores parent block content for super() calls
     [string]$CurrentBlock     # Name of the block currently being compiled
+    [UndefinedBehavior]$UndefinedBehavior  # Behavior for undefined variables (Jinja2 compatibility)
     
     PowershellCompiler() {
         $this.Code = [System.Text.StringBuilder]::new()
@@ -2868,6 +2882,7 @@ class PowershellCompiler {
         $this.Context = @{}
         $this.ParentBlocks = @{}
         $this.CurrentBlock = $null
+        $this.UndefinedBehavior = [UndefinedBehavior]::Default
     }
     
     # Compile the AST into executable PowerShell code
@@ -3063,6 +3078,7 @@ class PowershellCompiler {
             "CallNode" { $this.VisitCall([CallNode]$node) }           # Call block {% call ... %}
             "ImportNode" { $this.VisitImport([ImportNode]$node) }     # Import statement {% import ... %}
             "FromImportNode" { $this.VisitFromImport([FromImportNode]$node) }  # From-import statement {% from ... import ... %}
+            "CommentNode" { return }  # Comments are ignored during compilation
             default { throw "Unknown node type: $($node.GetType().Name)" }
         }
     }
@@ -3327,10 +3343,191 @@ class PowershellCompiler {
     
     [void]VisitOutput([OutputNode]$node) {
         $expression = $this.VisitExpression($node.Expression)
-        # Add null check before calling ToString()
+        
+        # Generate code based on UndefinedBehavior setting and expression type
+        if ($node.Expression -is [VariableNode]) {
+            $this.VisitOutputVariable($node, $expression)
+        }
+        elseif ($node.Expression -is [PropertyAccessNode]) {
+            $this.VisitOutputProperty($node, $expression)
+        }
+        else {
+            # For other expressions (literals, filters, etc.), just output if not null
+            $this.VisitOutputGeneric($expression)
+        }
+    }
+    
+    # Handle output of simple variables with undefined behavior support
+    [void]VisitOutputVariable([OutputNode]$node, [string]$expression) {
+        $varName = ([VariableNode]$node.Expression).Name
+        
+        switch ($this.UndefinedBehavior) {
+            ([UndefinedBehavior]::Default) {
+                # Jinja2 default: output empty string for undefined, empty string for null
+                $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
+                $this.AppendLine("if (`$__var_exists__) {")
+                $this.IndentLevel++
+                $this.AppendLine("`$__value__ = $expression")
+                $this.AppendLine("if (`$null -ne `$__value__) {")
+                $this.IndentLevel++
+                $this.OutputValue()
+                $this.IndentLevel--
+                $this.AppendLine("}")
+                $this.AppendLine("# If null, output empty string (do nothing)")
+                $this.IndentLevel--
+                $this.AppendLine("}")
+                $this.AppendLine("# If undefined, output empty string (do nothing)")
+            }
+            ([UndefinedBehavior]::Strict) {
+                # Throw exception for undefined variables
+                $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
+                $this.AppendLine("if (-not `$__var_exists__) {")
+                $this.IndentLevel++
+                $this.AppendLine("throw `"UndefinedError: '$varName' is undefined`"")
+                $this.IndentLevel--
+                $this.AppendLine("}")
+                $this.AppendLine("`$__value__ = $expression")
+                $this.AppendLine("if (`$null -ne `$__value__) {")
+                $this.IndentLevel++
+                $this.OutputValue()
+                $this.IndentLevel--
+                $this.AppendLine("}")
+            }
+            ([UndefinedBehavior]::Debug) {
+                # Output placeholder for undefined variables
+                $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
+                $this.AppendLine("if (`$__var_exists__) {")
+                $this.IndentLevel++
+                $this.AppendLine("`$__value__ = $expression")
+                $this.AppendLine("if (`$null -ne `$__value__) {")
+                $this.IndentLevel++
+                $this.OutputValue()
+                $this.IndentLevel--
+                $this.AppendLine("}")
+                $this.IndentLevel--
+                $this.AppendLine("} else {")
+                $this.IndentLevel++
+                $this.AppendLine("`$output.Append('{{ $varName }}') | Out-Null")
+                $this.IndentLevel--
+                $this.AppendLine("}")
+            }
+            ([UndefinedBehavior]::Chainable) {
+                # Allow chaining - output empty for undefined/null
+                $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
+                $this.AppendLine("if (`$__var_exists__) {")
+                $this.IndentLevel++
+                $this.AppendLine("`$__value__ = $expression")
+                $this.AppendLine("if (`$null -ne `$__value__) {")
+                $this.IndentLevel++
+                $this.OutputValue()
+                $this.IndentLevel--
+                $this.AppendLine("}")
+                $this.IndentLevel--
+                $this.AppendLine("}")
+            }
+        }
+    }
+    
+    # Handle output of property access with undefined behavior support
+    [void]VisitOutputProperty([OutputNode]$node, [string]$expression) {
+        $propAccess = [PropertyAccessNode]$node.Expression
+        $fullExpr = $this.GetPropertyAccessString($propAccess)
+        
+        # Get the base variable name
+        $baseVar = $propAccess.Object
+        while ($baseVar -is [PropertyAccessNode]) {
+            $baseVar = ([PropertyAccessNode]$baseVar).Object
+        }
+        
+        if ($baseVar -is [VariableNode]) {
+            $baseVarName = ([VariableNode]$baseVar).Name
+            
+            switch ($this.UndefinedBehavior) {
+                ([UndefinedBehavior]::Default) {
+                    # Jinja2 default: output empty string for undefined base or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+                ([UndefinedBehavior]::Strict) {
+                    # Throw exception for undefined base variable or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (-not `$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("throw `"UndefinedError: '$baseVarName' is undefined`"")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -eq `$__value__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("throw `"UndefinedError: property '$fullExpr' is undefined or null`"")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.OutputValue()
+                }
+                ([UndefinedBehavior]::Debug) {
+                    # Output placeholder for undefined base or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("} else {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$output.Append('{{ $fullExpr }}') | Out-Null")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("} else {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$output.Append('{{ $fullExpr }}') | Out-Null")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+                ([UndefinedBehavior]::Chainable) {
+                    # Allow chaining - output empty for undefined/null
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+            }
+        } else {
+            # Base is not a simple variable, just check for null
+            $this.VisitOutputGeneric($expression)
+        }
+    }
+    
+    # Handle output of generic expressions (literals, filters, etc.)
+    [void]VisitOutputGeneric([string]$expression) {
         $this.AppendLine("`$__value__ = $expression")
         $this.AppendLine("if (`$null -ne `$__value__) {")
         $this.IndentLevel++
+        $this.OutputValue()
+        $this.IndentLevel--
+        $this.AppendLine("}")
+    }
+    
+    # Helper method to output a value with proper formatting
+    [void]OutputValue() {
         # Use invariant culture for numbers to ensure dot as decimal separator
         $this.AppendLine("if (`$__value__ -is [double] -or `$__value__ -is [decimal] -or `$__value__ -is [float]) {")
         $this.IndentLevel++
@@ -3341,8 +3538,21 @@ class PowershellCompiler {
         $this.AppendLine("`$output.Append(`$__value__.ToString()) | Out-Null")
         $this.IndentLevel--
         $this.AppendLine("}")
-        $this.IndentLevel--
-        $this.AppendLine("}")
+    }
+    
+    # Helper method to get the string representation of a property access expression
+    [string]GetPropertyAccessString([PropertyAccessNode]$node) {
+        if ($node.Object -is [VariableNode]) {
+            $varName = ([VariableNode]$node.Object).Name
+            return "$varName.$($node.Property)"
+        }
+        elseif ($node.Object -is [PropertyAccessNode]) {
+            $parentExpr = $this.GetPropertyAccessString([PropertyAccessNode]$node.Object)
+            return "$parentExpr.$($node.Property)"
+        }
+        else {
+            return "expression.$($node.Property)"
+        }
     }
     
     [void]VisitIf([IfNode]$node) {
@@ -3957,18 +4167,21 @@ class TemplateEngine {
     static [hashtable]$Cache = @{}
     static [int]$MaxSelfRecursionDepth = 1  # Maximum recursion depth for self.blockname() calls (Jinja2 compatibility)
     [string]$TemplateDir  # Directory where templates are located
+    [TemplateEnvironment]$Environment  # Template environment settings (Jinja2 compatibility)
     
     TemplateEngine() {
         $this.TemplateDir = ""
+        $this.Environment = [TemplateEnvironment]::new()
     }
     
     # Render a template with the given context variables
     # This is the main public method for template rendering
     [string]Render([string]$template, [hashtable]$context) {
-        # Create cache key that includes template hash AND prefix settings
-        # This ensures that changing prefixes invalidates the cache
+        # Create cache key that includes template hash, prefix settings, AND undefined behavior
+        # This ensures that changing any of these settings invalidates the cache
         $prefixKey = "$([Lexer]::LINE_STATEMENT_PREFIX)|$([Lexer]::LINE_COMMENT_PREFIX)"
-        $cacheKey = "$($template.GetHashCode())|$prefixKey"
+        $undefinedKey = $this.Environment.UndefinedBehavior.ToString()
+        $cacheKey = "$($template.GetHashCode())|$prefixKey|$undefinedKey"
         
         # Check if the template is already compiled and cached
         if (-not [TemplateEngine]::Cache.ContainsKey($cacheKey)) {
@@ -4032,6 +4245,7 @@ class TemplateEngine {
         
         # Compile and render the merged template
         $compiler = [PowershellCompiler]::new()
+        $compiler.UndefinedBehavior = $this.Environment.UndefinedBehavior
         
         # Pass parent blocks to compiler for super() support
         foreach ($blockName in $parentAst.Blocks.Keys) {
@@ -4134,6 +4348,7 @@ class TemplateEngine {
             # Step 3: Compilation - Convert AST into PowerShell code
             Write-Host "Compiling AST to PowerShell code..."
             $compiler = [PowershellCompiler]::new()
+            $compiler.UndefinedBehavior = $this.Environment.UndefinedBehavior
             $powershellCode = $compiler.Compile($ast)
             
             # Step 4: Create an executable script block from the PowerShell code
@@ -4958,6 +5173,9 @@ function Invoke-AltarTemplate {
         [hashtable]$Context,
         
         [Parameter(Mandatory = $false)]
+        [UndefinedBehavior]$UndefinedBehavior = [UndefinedBehavior]::Default,
+        
+        [Parameter(Mandatory = $false)]
         [string]$LineStatementPrefix,
         
         [Parameter(Mandatory = $false)]
@@ -4967,6 +5185,12 @@ function Invoke-AltarTemplate {
     try {
         Write-Verbose "Creating template engine instance"
         $engine = [TemplateEngine]::new()
+        
+        # Set undefined behavior if provided
+        if ($PSBoundParameters.ContainsKey('UndefinedBehavior')) {
+            $engine.Environment.UndefinedBehavior = $UndefinedBehavior
+            Write-Verbose "Undefined behavior set to: $UndefinedBehavior"
+        }
         
         # Set line statement and comment prefixes if provided
         if ($PSBoundParameters.ContainsKey('LineStatementPrefix')) {
