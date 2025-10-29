@@ -538,6 +538,152 @@ a'b
         }
     }
     
+    Context "Loop Variable" {
+        It "Provides loop.index (1-based counter)" {
+            $template = @"
+{% for item in items -%}
+{{ loop.index }}
+{% endfor -%}
+"@
+            $context = @{
+                items = @('A', 'B', 'C')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+1
+2
+3
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Provides loop.index0 (0-based counter)" {
+            $template = @"
+{% for item in items -%}
+{{ loop.index0 }}
+{% endfor -%}
+"@
+            $context = @{
+                items = @('A', 'B', 'C')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+0
+1
+2
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Provides loop.first flag" {
+            $template = @"
+{% for item in items -%}
+{% if loop.first -%}
+FIRST: {{ item }}
+{% else -%}
+{{ item }}
+{% endif -%}
+{% endfor -%}
+"@
+            $context = @{
+                items = @('A', 'B', 'C')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+FIRST: A
+B
+C
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Provides loop.last flag" {
+            $template = @"
+{% for item in items -%}
+{% if loop.last -%}
+LAST: {{ item }}
+{% else -%}
+{{ item }}
+{% endif -%}
+{% endfor -%}
+"@
+            $context = @{
+                items = @('A', 'B', 'C')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+A
+B
+LAST: C
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Provides loop.length" {
+            $template = @"
+{% for item in items -%}
+{{ loop.index }}/{{ loop.length }}: {{ item }}
+{% endfor -%}
+"@
+            $context = @{
+                items = @('A', 'B', 'C')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+1/3: A
+2/3: B
+3/3: C
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Combines all loop variables" {
+            $template = @"
+{% for item in items -%}
+{{ loop.index }}. {{ item }} (index0: {{ loop.index0 }}, first: {{ loop.first }}, last: {{ loop.last }}, length: {{ loop.length }})
+{% endfor -%}
+"@
+            $context = @{
+                items = @('apple', 'banana', 'cherry')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = @"
+1. apple (index0: 0, first: True, last: False, length: 3)
+2. banana (index0: 1, first: False, last: False, length: 3)
+3. cherry (index0: 2, first: False, last: True, length: 3)
+"@
+            $result | Should -Be $expected
+        }
+        
+        It "Works with single item array" {
+            $template = @"
+{% for item in items -%}
+{{ loop.index }}/{{ loop.length }}: {{ item }} (first: {{ loop.first }}, last: {{ loop.last }})
+{% endfor -%}
+"@
+            $context = @{
+                items = @('only-one')
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expected = "1/1: only-one (first: True, last: True)"
+            $result | Should -Be $expected
+        }
+    }
+    
     Context "Error Handling" {
         It "Throws error when endfor is missing" {
             $template = @"
@@ -666,6 +812,151 @@ a'b
 *No items to display*
 "@
             $result | Should -Be $expected
+        }
+    }
+    
+    Context "Scoped Modifier (Jinja2 Compatibility)" {
+        It "Accepts 'scoped' modifier without errors" {
+            $template = @"
+{% for item in items -%}
+<li>{% block loop_item scoped %}{{ item }}{% endblock %}</li>
+{% endfor -%}
+"@
+            $context = @{ items = @('apple', 'banana', 'cherry') }
+            
+            { Invoke-AltarTemplate -Template $template -Context $context } | Should -Not -Throw
+        }
+
+        It "Renders correctly with 'scoped' modifier" {
+            $template = @"
+{% for item in items -%}
+<li>{% block loop_item scoped %}{{ item }}{% endblock %}</li>
+{% endfor -%}
+"@
+            $context = @{ items = @('apple', 'banana', 'cherry') }
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match '<li>apple</li>'
+            $result | Should -Match '<li>banana</li>'
+            $result | Should -Match '<li>cherry</li>'
+        }
+
+        It "Works the same with or without 'scoped' modifier (Altar behavior)" {
+            $templateWithScoped = @"
+{% for item in items -%}
+<li>{% block loop_item scoped %}{{ item }}{% endblock %}</li>
+{% endfor -%}
+"@
+            $templateWithoutScoped = @"
+{% for item in items -%}
+<li>{% block loop_item %}{{ item }}{% endblock %}</li>
+{% endfor -%}
+"@
+            $context = @{ items = @('apple', 'banana', 'cherry') }
+            
+            $resultWith = Invoke-AltarTemplate -Template $templateWithScoped -Context $context
+            $resultWithout = Invoke-AltarTemplate -Template $templateWithoutScoped -Context $context
+            
+            # Both should produce the same output in Altar
+            $resultWith.Trim() | Should -Be $resultWithout.Trim()
+        }
+        
+        It "Works with nested loops and scoped modifier" {
+            $template = @"
+{% for category in categories -%}
+<div>
+  <h2>{{ category.name }}</h2>
+  <ul>
+  {% for item in category.items -%}
+    <li>{% block item_display scoped %}{{ item }}{% endblock %}</li>
+  {% endfor -%}
+  </ul>
+</div>
+{% endfor -%}
+"@
+            $context = @{
+                categories = @(
+                    @{ name = "Fruits"; items = @("apple", "banana") },
+                    @{ name = "Vegetables"; items = @("carrot", "potato") }
+                )
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match '<h2>Fruits</h2>'
+            $result | Should -Match '<li>apple</li>'
+            $result | Should -Match '<h2>Vegetables</h2>'
+            $result | Should -Match '<li>carrot</li>'
+        }
+
+        It "Works with loop variable access in scoped blocks" {
+            $template = @"
+{% for item in items -%}
+{% block item_block scoped -%}
+Item {{ loop.index }}: {{ item }}
+{% endblock -%}
+{% endfor -%}
+"@
+            $context = @{ items = @('first', 'second', 'third') }
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match 'Item 1: first'
+            $result | Should -Match 'Item 2: second'
+            $result | Should -Match 'Item 3: third'
+        }
+
+        It "Works with filters inside scoped blocks" {
+            $template = @"
+{% for item in items -%}
+{% block filtered_item scoped %}{{ item | upper }}{% endblock %}
+{% endfor -%}
+"@
+            $context = @{ items = @('apple', 'banana') }
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match 'APPLE'
+            $result | Should -Match 'BANANA'
+        }
+
+        It "Works with conditionals inside scoped blocks" {
+            $template = @"
+{% for item in items -%}
+{% block conditional_item scoped -%}
+{% if item == 'special' -%}
+Special: {{ item }}
+{% else -%}
+Regular: {{ item }}
+{% endif -%}
+{% endblock -%}
+{% endfor -%}
+"@
+            $context = @{ items = @('normal', 'special', 'normal') }
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match 'Regular: normal'
+            $result | Should -Match 'Special: special'
+        }
+        
+        It "Parses Jinja2 templates with scoped modifier" {
+            # This is a typical Jinja2 pattern that should now work in Altar
+            $template = @"
+<ul>
+{% for item in navigation -%}
+    <li>{% block nav_item scoped %}<a href="{{ item.href }}">{{ item.caption }}</a>{% endblock %}</li>
+{% endfor -%}
+</ul>
+"@
+            $context = @{
+                navigation = @(
+                    @{ href = "/home"; caption = "Home" },
+                    @{ href = "/about"; caption = "About" }
+                )
+            }
+            
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $result | Should -Match '<a href="/home">Home</a>'
+            $result | Should -Match '<a href="/about">About</a>'
         }
     }
 }

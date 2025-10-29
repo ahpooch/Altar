@@ -1,0 +1,26 @@
+{% macro dump_users(users) -%}
+    <div class="user-list">
+        <h3>User Directory</h3>
+        <ul>
+        {%- for user in users %}
+            <li class="user-item">
+                {{ caller(user) }}
+            </li>
+        {%- endfor %}
+        </ul>
+    </div>
+{%- endmacro %}
+
+{% call(user) dump_users(list_of_users) %}
+    <div class="user-card">
+        <h4>{{ user.username }}</h4>
+        <dl>
+            <dt>Real Name</dt>
+            <dd>{{ user.realname }}</dd>
+            <dt>Email</dt>
+            <dd>{{ user.email }}</dd>
+            <dt>Role</dt>
+            <dd>{{ user.role }}</dd>
+        </dl>
+    </div>
+{% endcall %}

@@ -1,0 +1,41 @@
+Simple 'is' operator examples:
+
+{% set my_var = 'hello' %}
+{% set empty_var = null %}
+{% set number = 10 %}
+
+1. Check if variable is defined:
+{% if my_var is defined %}
+   ✓ my_var is defined
+{% else %}
+   ✗ my_var is NOT defined
+{% endif %}
+
+2. Check if variable is not defined:
+{% if undefined_var is not defined %}
+   ✓ undefined_var is NOT defined
+{% else %}
+   ✗ undefined_var is defined
+{% endif %}
+
+3. Check if variable is none/null:
+{% if empty_var is none %}
+   ✓ empty_var is none
+{% else %}
+   ✗ empty_var is NOT none
+{% endif %}
+
+4. Check if number is even:
+{% if number is even %}
+   ✓ {{ number }} is even
+{% else %}
+   ✗ {{ number }} is NOT even
+{% endif %}
+
+5. Check if number is odd:
+{% set odd_number = 7 %}
+{% if odd_number is odd %}
+   ✓ {{ odd_number }} is odd
+{% else %}
+   ✗ {{ odd_number }} is NOT odd
+{% endif %}

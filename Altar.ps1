@@ -17,6 +17,7 @@ enum TokenType {
     PIPE            # Pipe character | used before filters
     FILTER          # Template filters
     DOT             # Dot character . used for property access
+    RAW_CONTENT     # Raw block content (preserved as-is)
     EOF             # End of file marker
 }
 
@@ -131,6 +132,10 @@ class Lexer {
     static [string]$COMMENT_END = '#}'       # End of comment
     static [string]$PIPE = '|'               # Pipe before filter
     
+    # Line statement and comment prefixes (Jinja2 compatibility)
+    static [string]$LINE_STATEMENT_PREFIX = $null  # e.g., '#' for line statements
+    static [string]$LINE_COMMENT_PREFIX = $null    # e.g., '##' for line comments
+    
     # Reserved keywords in the template language
     static [hashtable]$KEYWORDS = @{
         'if'      = $true   # Conditional blocks
@@ -139,9 +144,11 @@ class Lexer {
         'elif'    = $true   # Else-if conditional branch
         'endif'   = $true   # End of conditional block
         'endfor'  = $true   # End of loop block
-        'in'      = $true   # Used in for loops
+        'in'      = $true   # Used in for loops and membership tests
+        'is'      = $true   # Used for type/state tests
         'and'     = $true   # Logical AND operator
         'or'      = $true   # Logical OR operator
+        'not'     = $true   # Logical NOT operator
         'true'    = $true   # Boolean literal
         'false'   = $true   # Boolean literal
         'null'    = $true   # Null literal
@@ -157,6 +164,15 @@ class Lexer {
         'endpowershell' = $true  # End of PowerShell block
         'catch'   = $true   # Catch block for error handling
         'set'     = $true   # Variable assignment
+        'defined' = $true   # Test: variable is defined
+        'even'    = $true   # Test: number is even
+        'odd'     = $true   # Test: number is odd
+        'macro'   = $true   # Macro definition
+        'endmacro'= $true   # End of macro definition
+        'call'    = $true   # Call block with caller
+        'endcall' = $true   # End of call block
+        'import'  = $true   # Import macros from template
+        'from'    = $true   # From clause for imports
     }
     
     # Main tokenization method that converts template text into a list of tokens
@@ -168,7 +184,7 @@ class Lexer {
         
         # Process the template until we reach the end
         while (-not $state.IsEOF()) {
-            # Get the current lexer state (INITIAL, VARIABLE, BLOCK, COMMENT)
+            # Get the current lexer state (INITIAL, VARIABLE, BLOCK, COMMENT, RAW_BLOCK)
             $currentState = $state.States.Peek()
             
             # Call the appropriate tokenization method based on the current state
@@ -177,6 +193,7 @@ class Lexer {
                 "VARIABLE" { $this.TokenizeExpression($state, $tokens, "VARIABLE") }  # Inside {{ ... }}
                 "BLOCK" { $this.TokenizeExpression($state, $tokens, "BLOCK") }  # Inside {% ... %}
                 "COMMENT" { $this.TokenizeComment($state, $tokens) }  # Inside {# ... #}
+                "RAW_BLOCK" { $this.TokenizeRawBlock($state, $tokens) }  # Inside {% raw %} ... {% endraw %}
                 default { throw "Unknown lexer state: $currentState" }
             }
         }
@@ -186,9 +203,194 @@ class Lexer {
         return $tokens
     }
     
+    # Check if we're at the start of a line (only whitespace before current position on this line)
+    [bool]IsAtLineStart([LexerState]$state) {
+        # If we're at position 0, we're at the start
+        if ($state.Position -eq 0) {
+            return $true
+        }
+        
+        # Check backwards from current position to find if we're at line start
+        $pos = $state.Position - 1
+        while ($pos -ge 0) {
+            $c = $state.Text[$pos]
+            if ($c -eq "`n") {
+                return $true  # Found newline, we're at line start
+            }
+            if ($c -ne ' ' -and $c -ne "`t" -and $c -ne "`r") {
+                return $false  # Found non-whitespace, not at line start
+            }
+            $pos--
+        }
+        return $true  # Reached start of file, we're at line start
+    }
+    
+    # Check if current position matches line statement prefix
+    [bool]CheckLineStatement([LexerState]$state) {
+        # Line statement prefix must be set
+        if ([string]::IsNullOrEmpty([Lexer]::LINE_STATEMENT_PREFIX)) {
+            return $false
+        }
+        
+        # Must be at line start (beginning of file or after whitespace following newline)
+        if (-not $this.IsAtLineStart($state)) {
+            return $false
+        }
+        
+        # Skip leading whitespace to find the prefix
+        $offset = 0
+        while ($state.PeekOffset($offset) -eq ' ' -or $state.PeekOffset($offset) -eq "`t") {
+            $offset++
+        }
+        
+        # Check if prefix matches at the offset position
+        $prefix = [Lexer]::LINE_STATEMENT_PREFIX
+        for ($i = 0; $i -lt $prefix.Length; $i++) {
+            if ($state.PeekOffset($offset + $i) -ne $prefix[$i]) {
+                return $false
+            }
+        }
+        
+        # Make sure it's not a line comment (if line comment prefix is longer)
+        if (![string]::IsNullOrEmpty([Lexer]::LINE_COMMENT_PREFIX)) {
+            $commentPrefix = [Lexer]::LINE_COMMENT_PREFIX
+            if ($commentPrefix.StartsWith($prefix) -and $commentPrefix.Length -gt $prefix.Length) {
+                # Check if this is actually a comment
+                $isComment = $true
+                for ($i = 0; $i -lt $commentPrefix.Length; $i++) {
+                    if ($state.PeekOffset($i) -ne $commentPrefix[$i]) {
+                        $isComment = $false
+                        break
+                    }
+                }
+                if ($isComment) {
+                    return $false  # This is a comment, not a statement
+                }
+            }
+        }
+        
+        return $true
+    }
+    
+    # Check if current position matches line comment prefix
+    [bool]CheckLineComment([LexerState]$state) {
+        # Line comment prefix must be set
+        if ([string]::IsNullOrEmpty([Lexer]::LINE_COMMENT_PREFIX)) {
+            return $false
+        }
+        
+        # Check if prefix matches (can be anywhere on the line for inline comments)
+        $prefix = [Lexer]::LINE_COMMENT_PREFIX
+        for ($i = 0; $i -lt $prefix.Length; $i++) {
+            if ($state.PeekOffset($i) -ne $prefix[$i]) {
+                return $false
+            }
+        }
+        
+        return $true
+    }
+    
+    # Tokenize a line statement (e.g., # for item in items)
+    [void]TokenizeLineStatement([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
+        $state.CaptureStart()
+        
+        # Skip leading whitespace before the prefix
+        while (-not $state.IsEOF() -and ($state.Peek() -eq ' ' -or $state.Peek() -eq "`t")) {
+            $state.Consume()
+        }
+        
+        # Consume the prefix
+        $prefix = [Lexer]::LINE_STATEMENT_PREFIX
+        for ($i = 0; $i -lt $prefix.Length; $i++) {
+            $state.Consume()
+        }
+        
+        # Skip whitespace after prefix
+        while (-not $state.IsEOF() -and ($state.Peek() -eq ' ' -or $state.Peek() -eq "`t")) {
+            $state.Consume()
+        }
+        
+        # Collect the statement content until end of line
+        $statementContent = ""
+        while (-not $state.IsEOF() -and $state.Peek() -ne "`n" -and $state.Peek() -ne "`r") {
+            $statementContent += $state.Peek()
+            $state.Consume()
+        }
+        
+        # Remove optional trailing colon
+        $statementContent = $statementContent.TrimEnd()
+        if ($statementContent.EndsWith(':')) {
+            $statementContent = $statementContent.Substring(0, $statementContent.Length - 1).TrimEnd()
+        }
+        
+        # Consume newline if present
+        if (-not $state.IsEOF() -and $state.Peek() -eq "`r") {
+            $state.Consume()
+        }
+        if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
+            $state.Consume()
+        }
+        
+        # Create a temporary lexer to tokenize the statement content as a block expression
+        # Add BLOCK_START token
+        $tokens.Add([Token]::new([TokenType]::BLOCK_START, [Lexer]::BLOCK_START, $state.StartLine, $state.StartColumn, $state.Filename))
+        
+        # Tokenize the statement content
+        if (![string]::IsNullOrWhiteSpace($statementContent)) {
+            $tempLexer = [Lexer]::new()
+            $tempState = [LexerState]::new($statementContent, $state.Filename)
+            $tempState.Line = $state.StartLine
+            $tempState.Column = $state.StartColumn + $prefix.Length
+            
+            # Tokenize as expression content
+            while (-not $tempState.IsEOF()) {
+                $tempLexer.TokenizeExpression($tempState, $tokens, "BLOCK")
+            }
+        }
+        
+        # Add BLOCK_END token
+        $tokens.Add([Token]::new([TokenType]::BLOCK_END, [Lexer]::BLOCK_END, $state.Line, $state.Column, $state.Filename))
+    }
+    
+    # Tokenize a line comment (e.g., ## this is a comment)
+    [void]TokenizeLineComment([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
+        # Consume the prefix
+        $prefix = [Lexer]::LINE_COMMENT_PREFIX
+        for ($i = 0; $i -lt $prefix.Length; $i++) {
+            $state.Consume()
+        }
+        
+        # Skip everything until end of line
+        while (-not $state.IsEOF() -and $state.Peek() -ne "`n" -and $state.Peek() -ne "`r") {
+            $state.Consume()
+        }
+        
+        # Consume newline if present
+        if (-not $state.IsEOF() -and $state.Peek() -eq "`r") {
+            $state.Consume()
+        }
+        if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
+            $state.Consume()
+        }
+        
+        # Don't add any tokens - comment is ignored
+    }
+    
     # Process template text in the INITIAL state (outside of any tags)
     # Handles regular text content and detects the start of variable, block, or comment tags
     [void]TokenizeInitial([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
+        # Check for line comment first (higher priority than line statement)
+        if ($this.CheckLineComment($state)) {
+            $this.TokenizeLineComment($state, $tokens)
+            return
+        }
+        
+        # Check for line statement
+        if ($this.CheckLineStatement($state)) {
+            $this.TokenizeLineStatement($state, $tokens)
+            return
+        }
+        
         $char = $state.Peek()
         
         # Check for template tags starting with '{'
@@ -240,11 +442,44 @@ class Lexer {
             }
         }
         
-        # Process regular text content (everything up to the next tag or EOF)
+        # Process regular text content (everything up to the next tag, line statement, or EOF)
         $textStart = $state.Position
         $state.CaptureStart()
-        while (-not $state.IsEOF() -and $state.Peek() -ne '{') {
-            $state.Consume()
+        
+        while (-not $state.IsEOF()) {
+            # Check if we've hit a template tag
+            if ($state.Peek() -eq '{') {
+                break
+            }
+            
+            # Check for inline line comment (anywhere on the line, not just at start)
+            if ($this.CheckLineComment($state)) {
+                # Stop collecting text here, let next iteration handle the comment
+                # Trim trailing whitespace before the comment
+                if ($state.Position -gt $textStart) {
+                    $textContent = $state.Text.Substring($textStart, $state.Position - $textStart)
+                    # Trim trailing spaces and tabs (but not newlines)
+                    $textContent = $textContent -replace '[ \t]+$', ''
+                    if ($textContent.Length -gt 0) {
+                        $tokens.Add([Token]::new([TokenType]::TEXT, $textContent, $state.StartLine, $state.StartColumn, $state.Filename))
+                    }
+                }
+                return
+            }
+            
+            # Check if we've hit a newline - need to check for line statements on next line
+            if ($state.Peek() -eq "`n") {
+                $state.Consume()  # Consume the newline
+                
+                # After consuming newline, check if next position is a line statement or comment
+                if ($this.CheckLineComment($state) -or $this.CheckLineStatement($state)) {
+                    # Stop collecting text here, let next iteration handle the line statement/comment
+                    break
+                }
+            }
+            else {
+                $state.Consume()
+            }
         }
         
         # If we found any text content, create a TEXT token
@@ -289,6 +524,13 @@ class Lexer {
                 $tokens.Add([Token]::new([TokenType]::BLOCK_END, [Lexer]::BLOCK_END_TRIM, $state.StartLine, $state.StartColumn, $state.Filename))
                 $state.States.Pop()  # Return to previous state
                 
+                # Check if the last keyword was 'raw' - if so, switch to RAW_BLOCK state
+                if ($tokens.Count -ge 2 -and 
+                    $tokens[$tokens.Count - 2].Type -eq [TokenType]::KEYWORD -and 
+                    $tokens[$tokens.Count - 2].Value -eq 'raw') {
+                    $state.States.Push("RAW_BLOCK")
+                }
+                
                 # Trim whitespace after the tag
                 $this.TrimWhitespaceAfter($state)
                 return
@@ -300,6 +542,14 @@ class Lexer {
                 $state.Consume()  # Consume '}'
                 $tokens.Add([Token]::new([TokenType]::BLOCK_END, [Lexer]::BLOCK_END, $state.StartLine, $state.StartColumn, $state.Filename))
                 $state.States.Pop()  # Return to previous state
+                
+                # Check if the last keyword was 'raw' - if so, switch to RAW_BLOCK state
+                if ($tokens.Count -ge 2 -and 
+                    $tokens[$tokens.Count - 2].Type -eq [TokenType]::KEYWORD -and 
+                    $tokens[$tokens.Count - 2].Value -eq 'raw') {
+                    $state.States.Push("RAW_BLOCK")
+                }
+                
                 return
             }
         }
@@ -388,6 +638,13 @@ class Lexer {
         # Check if the identifier is a reserved keyword
         if ([Lexer]::KEYWORDS.ContainsKey($identifier)) {
             $tokens.Add([Token]::new([TokenType]::KEYWORD, $identifier, $state.StartLine, $state.StartColumn, $state.Filename))
+            
+            # Special handling for 'raw' keyword - switch to RAW_BLOCK state
+            if ($identifier -eq 'raw' -and $state.States.Peek() -eq 'BLOCK') {
+                # We're in a block and just tokenized 'raw' keyword
+                # After the closing %} is consumed, we'll switch to RAW_BLOCK state
+                # This is handled in TokenizeExpression when it processes BLOCK_END
+            }
         }
         else {
             $tokens.Add([Token]::new([TokenType]::IDENTIFIER, $identifier, $state.StartLine, $state.StartColumn, $state.Filename))
@@ -557,6 +814,60 @@ class Lexer {
             $state.Consume()
         }
     }
+    
+    # Process raw block content - collect everything until {% endraw %} without tokenizing
+    # This prevents the lexer from trying to tokenize special characters inside raw blocks
+    [void]TokenizeRawBlock([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
+        # We're in RAW_BLOCK state, which means we just consumed {% raw %}
+        # Now we need to find {% endraw %} and collect everything in between as RAW_CONTENT
+        
+        $startPos = $state.Position
+        $state.CaptureStart()
+        
+        # Search for {% endraw %} in the raw text
+        while (-not $state.IsEOF()) {
+            # Check if we've found the start of {% endraw %}
+            if ($state.Peek() -eq '{' -and $state.PeekOffset(1) -eq '%') {
+                # Look ahead to see if this is {% endraw %} or {%- endraw %}
+                $tempPos = $state.Position + 2
+                
+                # Skip optional '-' for {%- endraw %}
+                if (($tempPos -lt $state.Text.Length) -and ($state.Text[$tempPos] -eq '-')) {
+                    $tempPos++
+                }
+                
+                # Skip whitespace
+                while (($tempPos -lt $state.Text.Length) -and [char]::IsWhiteSpace($state.Text[$tempPos])) {
+                    $tempPos++
+                }
+                
+                # Check if we have 'endraw' keyword
+                if (($tempPos + 6) -le $state.Text.Length) {
+                    $keyword = $state.Text.Substring($tempPos, 6)
+                    if ($keyword -eq 'endraw') {
+                        # Found {% endraw %} - extract the raw content
+                        $rawContent = $state.Text.Substring($startPos, $state.Position - $startPos)
+                        
+                        # Add RAW_CONTENT token
+                        $tokens.Add([Token]::new([TokenType]::RAW_CONTENT, $rawContent, $state.StartLine, $state.StartColumn, $state.Filename))
+                        
+                        # Now tokenize the {% endraw %} tag normally
+                        # Switch back to INITIAL state
+                        $state.States.Pop()
+                        
+                        # The next TokenizeInitial call will handle the {% endraw %} tag
+                        return
+                    }
+                }
+            }
+            
+            # Not the endraw tag, consume the character
+            $state.Consume()
+        }
+        
+        # If we reach here, we didn't find {% endraw %}
+        throw "Unclosed raw block - missing {% endraw %}"
+    }
 }
 
 ### AST (Abstract Syntax Tree) Classes
@@ -608,6 +919,18 @@ class PropertyAccessNode : ExpressionNode {
     PropertyAccessNode([ExpressionNode]$object, [string]$property, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
         $this.Object = $object
         $this.Property = $property
+    }
+}
+
+# Represents array/dictionary indexing expressions (e.g., array[0], dict['key'])
+# Allows accessing elements by index or key in the template
+class IndexAccessNode : ExpressionNode {
+    [ExpressionNode]$Object  # The object being indexed
+    [ExpressionNode]$Index   # The index expression
+    
+    IndexAccessNode([ExpressionNode]$object, [ExpressionNode]$index, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Object = $object
+        $this.Index = $index
     }
 }
 
@@ -709,10 +1032,12 @@ class ExtendsNode : StatementNode {
 class BlockNode : StatementNode {
     [string]$Name           # The name of the block
     [StatementNode[]]$Body  # The content of the block
+    [bool]$Scoped           # Jinja2 compatibility: scoped modifier (always true in Altar due to PowerShell scoping)
     
     BlockNode([string]$name, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
         $this.Name = $name
         $this.Body = @()    # Initialize empty array for block content
+        $this.Scoped = $false  # Default to false, set to true if 'scoped' modifier is present
     }
 }
 
@@ -747,10 +1072,29 @@ class ArrayLiteralNode : ExpressionNode {
     }
 }
 
+# Represents a dictionary/hashtable literal in the template (e.g., {'key': 'value', 'key2': 'value2'})
+class DictLiteralNode : ExpressionNode {
+    [System.Collections.Generic.List[System.Tuple[ExpressionNode, ExpressionNode]]]$Pairs  # Key-value pairs
+    
+    DictLiteralNode([int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Pairs = [System.Collections.Generic.List[System.Tuple[ExpressionNode, ExpressionNode]]]::new()
+    }
+}
+
 # Represents a super() call in the template
 # Used to include the parent block's content when overriding blocks
 class SuperNode : ExpressionNode {
     SuperNode([int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {}
+}
+
+# Represents a self.blockname() call in the template (Jinja2 compatibility)
+# Allows calling a block as a function from anywhere in the template
+class SelfCallNode : ExpressionNode {
+    [string]$BlockName  # The name of the block to call
+    
+    SelfCallNode([string]$blockName, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.BlockName = $blockName
+    }
 }
 
 # Represents a conditional (ternary) expression in the template (e.g., 'yes' if foo else 'no')
@@ -764,6 +1108,22 @@ class ConditionalExpressionNode : ExpressionNode {
         $this.TrueValue = $trueValue
         $this.Condition = $condition
         $this.FalseValue = $falseValue
+    }
+}
+
+# Represents an 'is' test expression in the template (e.g., variable is defined, number is even)
+# Used for type and state testing similar to Jinja2
+class IsTestNode : ExpressionNode {
+    [ExpressionNode]$Expression     # The expression to test
+    [string]$TestName               # The name of the test (defined, none, even, odd, etc.)
+    [bool]$Negated                  # Whether the test is negated (is not)
+    [ExpressionNode[]]$Arguments    # Optional arguments for tests like divisibleby(n) or sameas(value)
+    
+    IsTestNode([ExpressionNode]$expression, [string]$testName, [bool]$negated, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Expression = $expression
+        $this.TestName = $testName
+        $this.Negated = $negated
+        $this.Arguments = @()
     }
 }
 
@@ -793,6 +1153,76 @@ class SetNode : StatementNode {
     }
 }
 
+# Represents a macro definition ({% macro name(args) %} ... {% endmacro %})
+# Macros are reusable template fragments with parameters
+class MacroNode : StatementNode {
+    [string]$Name                                      # The name of the macro
+    [System.Collections.Generic.List[string]]$Parameters  # Parameter names
+    [hashtable]$Defaults                               # Default values for parameters
+    [StatementNode[]]$Body                             # The macro body
+    
+    MacroNode([string]$name, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Name = $name
+        $this.Parameters = [System.Collections.Generic.List[string]]::new()
+        $this.Defaults = @{}
+        $this.Body = @()
+    }
+}
+
+# Represents a macro call expression (e.g., {{ macroname(args) }})
+# Calls a previously defined macro with arguments
+class MacroCallNode : ExpressionNode {
+    [string]$MacroName                                 # The name of the macro to call
+    [System.Collections.Generic.List[ExpressionNode]]$Arguments  # Positional arguments
+    [hashtable]$NamedArguments                         # Named arguments (key-value pairs)
+    
+    MacroCallNode([string]$macroName, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.MacroName = $macroName
+        $this.Arguments = [System.Collections.Generic.List[ExpressionNode]]::new()
+        $this.NamedArguments = @{}
+    }
+}
+
+# Represents a call block ({% call macroname() %} ... {% endcall %})
+# Allows passing a block of content to a macro via caller()
+class CallNode : StatementNode {
+    [MacroCallNode]$MacroCall                          # The macro call expression
+    [StatementNode[]]$Body                             # The caller block content
+    [System.Collections.Generic.List[string]]$Parameters  # Parameters for caller()
+    
+    CallNode([MacroCallNode]$macroCall, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.MacroCall = $macroCall
+        $this.Body = @()
+        $this.Parameters = [System.Collections.Generic.List[string]]::new()
+    }
+}
+
+# Represents an import statement ({% import 'template.html' as forms %})
+# Imports macros from another template
+class ImportNode : StatementNode {
+    [ExpressionNode]$Template                          # Template to import from
+    [string]$Alias                                     # Alias for the imported macros
+    
+    ImportNode([ExpressionNode]$template, [string]$alias, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Template = $template
+        $this.Alias = $alias
+    }
+}
+
+# Represents a from-import statement ({% from 'template.html' import macro1, macro2 %})
+# Imports specific macros from another template
+class FromImportNode : StatementNode {
+    [ExpressionNode]$Template                          # Template to import from
+    [System.Collections.Generic.List[string]]$MacroNames  # Names of macros to import
+    [hashtable]$Aliases                                # Aliases for imported macros (optional)
+    
+    FromImportNode([ExpressionNode]$template, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Template = $template
+        $this.MacroNames = [System.Collections.Generic.List[string]]::new()
+        $this.Aliases = @{}
+    }
+}
+
 # Root node representing an entire template
 # Contains all statements and manages template inheritance
 class TemplateNode : ASTNode {
@@ -814,11 +1244,13 @@ class Parser {
     [System.Collections.Generic.List[Token]]$Tokens
     [int]$Position
     [string]$Filename
+    [string]$SourceText  # Store the original template text
     
     Parser([System.Collections.Generic.List[Token]]$tokens, [string]$filename) {
         $this.Tokens = $tokens
         $this.Position = 0
         $this.Filename = $filename
+        $this.SourceText = ""
     }
     
     # Get the current token without advancing the position
@@ -1029,6 +1461,12 @@ class Parser {
             "endpowershell" { return $null } # Just ending powershell block
             "catch" { return $null } # Handled in ParsePowerShell
             "set" { return $this.ParseSet($startToken) }
+            "macro" { return $this.ParseMacro($startToken) }
+            "endmacro" { return $null } # Just ending macro block
+            "call" { return $this.ParseCall($startToken) }
+            "endcall" { return $null } # Just ending call block
+            "import" { return $this.ParseImport($startToken) }
+            "from" { return $this.ParseFromImport($startToken) }
             default { throw "Unknown block keyword: $($keyword.Value)" }
         }
         return $null # only for PSScriptAnalyzer because it cannot understand derfault statement in switch
@@ -1043,9 +1481,20 @@ class Parser {
     
     [BlockNode]ParseBlockDef([Token]$startToken) {
         $blockName = $this.Expect([TokenType]::IDENTIFIER, $null).Value
+        
+        # Check for optional 'scoped' modifier (Jinja2 compatibility)
+        # Note: In Altar, blocks always have access to outer scope variables due to PowerShell's scoping rules.
+        # The 'scoped' modifier is accepted for Jinja2 template compatibility but doesn't change behavior.
+        $isScoped = $false
+        if ($this.Match([TokenType]::IDENTIFIER) -and $this.Current().Value -eq 'scoped') {
+            $this.Consume()  # Consume 'scoped'
+            $isScoped = $true
+        }
+        
         $this.Expect([TokenType]::BLOCK_END)
         
         $blockNode = [BlockNode]::new($blockName, $startToken.Line, $startToken.Column, $startToken.Filename)
+        $blockNode.Scoped = $isScoped
         
         # Parse block body
         while ($true) {
@@ -1131,7 +1580,7 @@ class Parser {
         # Parse array elements
         while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, "]")) {
             $element = $this.ParseExpression()
-            $elements.Add($element)
+            [void]$elements.Add($element)
             
             # Check for comma (multiple elements)
             if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
@@ -1152,94 +1601,15 @@ class Parser {
         # Consume the closing %} of the {% raw %} tag
         $this.Expect([TokenType]::BLOCK_END)
         
-        # Now we need to collect all content until we find {% endraw %}
-        # We'll collect TEXT tokens and reconstruct the raw content
-        $rawContent = ""
+        # The lexer should have created a RAW_CONTENT token
+        # Consume it to get the raw content
+        $rawContentToken = $this.Expect([TokenType]::RAW_CONTENT)
+        $rawContent = $rawContentToken.Value
         
-        while ($true) {
-            $currentToken = $this.Current()
-            
-            # Check if we've reached EOF
-            if ($null -eq $currentToken -or $currentToken.Type -eq [TokenType]::EOF) {
-                throw "Unexpected end of template. Expected: endraw"
-            }
-            
-            # Check if we've found the {% endraw %} tag
-            if ($currentToken.Type -eq [TokenType]::BLOCK_START) {
-                $nextToken = $this.PeekOffset(1)
-                if ($null -ne $nextToken -and $nextToken.Type -eq [TokenType]::KEYWORD -and $nextToken.Value -eq 'endraw') {
-                    # Found the endraw tag, consume it
-                    $this.Consume() # BLOCK_START
-                    $this.Consume() # endraw
-                    $this.Expect([TokenType]::BLOCK_END)
-                    break
-                }
-            }
-            
-            # Collect the content - we need to reconstruct the original text
-            # including any template syntax that would normally be tokenized
-            if ($currentToken.Type -eq [TokenType]::TEXT) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::VARIABLE_START) {
-                $rawContent += [Lexer]::VARIABLE_START
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::VARIABLE_END) {
-                $rawContent += [Lexer]::VARIABLE_END
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::BLOCK_START) {
-                $rawContent += [Lexer]::BLOCK_START
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::BLOCK_END) {
-                $rawContent += [Lexer]::BLOCK_END
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::COMMENT_START) {
-                $rawContent += [Lexer]::COMMENT_START
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::COMMENT_END) {
-                $rawContent += [Lexer]::COMMENT_END
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::IDENTIFIER) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::KEYWORD) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::STRING) {
-                # Reconstruct string with quotes
-                $rawContent += '"' + $currentToken.Value + '"'
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::NUMBER) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::OPERATOR) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::PUNCTUATION) {
-                $rawContent += $currentToken.Value
-                $this.Consume()
-            }
-            elseif ($currentToken.Type -eq [TokenType]::PIPE) {
-                $rawContent += [Lexer]::PIPE
-                $this.Consume()
-            }
-            else {
-                # Skip any other tokens
-                $this.Consume()
-            }
-        }
+        # Now consume the {% endraw %} tag tokens
+        $this.Expect([TokenType]::BLOCK_START)
+        $this.Expect([TokenType]::KEYWORD, "endraw")
+        $this.Expect([TokenType]::BLOCK_END)
         
         return [RawNode]::new($rawContent, $startToken.Line, $startToken.Column, $startToken.Filename)
     }
@@ -1845,6 +2215,261 @@ class Parser {
         return [SetNode]::new($variableName, $value, $startToken.Line, $startToken.Column, $startToken.Filename)
     }
     
+    # Parse a macro definition {% macro name(param1, param2=default) %} ... {% endmacro %}
+    [MacroNode]ParseMacro([Token]$startToken) {
+        # Expect macro name
+        $macroName = $this.Expect([TokenType]::IDENTIFIER).Value
+        
+        # Create macro node
+        $macroNode = [MacroNode]::new($macroName, $startToken.Line, $startToken.Column, $startToken.Filename)
+        
+        # Expect opening parenthesis
+        $this.Expect([TokenType]::PUNCTUATION, "(")
+        
+        # Parse parameters
+        while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, ")")) {
+            # Get parameter name
+            $paramName = $this.Expect([TokenType]::IDENTIFIER).Value
+            [void]$macroNode.Parameters.Add($paramName)
+            
+            # Check for default value
+            if ($this.MatchTypeValue([TokenType]::OPERATOR, "=")) {
+                $this.Consume()  # Consume '='
+                $defaultValue = $this.ParsePrimary()  # Parse default value (literal only)
+                $macroNode.Defaults[$paramName] = $defaultValue
+            }
+            
+            # Check for comma (more parameters)
+            if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                $this.Consume()  # Consume ','
+            } else {
+                break
+            }
+        }
+        
+        # Expect closing parenthesis
+        $this.Expect([TokenType]::PUNCTUATION, ")")
+        
+        # Expect closing %}
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        # Parse macro body until {% endmacro %}
+        while ($true) {
+            $currentToken = $this.Current()
+            
+            if ($null -eq $currentToken -or $currentToken.Type -eq [TokenType]::EOF) {
+                throw "Unexpected end of template. Expected: endmacro"
+            }
+            
+            # Check for {% endmacro %}
+            if ($currentToken.Type -eq [TokenType]::BLOCK_START) {
+                $nextToken = $this.PeekOffset(1)
+                if ($null -ne $nextToken -and $nextToken.Type -eq [TokenType]::KEYWORD -and 
+                    $nextToken.Value -eq 'endmacro') {
+                    break
+                }
+            }
+            
+            $statement = $this.ParseStatement()
+            if ($null -ne $statement) {
+                $macroNode.Body += $statement
+            } else {
+                if ($this.Position -lt $this.Tokens.Count) {
+                    $this.Position++
+                } else {
+                    throw "Unexpected end of template. Expected: endmacro"
+                }
+            }
+        }
+        
+        # Consume {% endmacro %}
+        $this.Consume()  # BLOCK_START
+        $this.Consume()  # endmacro
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        return $macroNode
+    }
+    
+    # Parse a call block {% call macroname() %} or {% call(param1, param2) macroname() %} ... {% endcall %}
+    [CallNode]ParseCall([Token]$startToken) {
+        # Check for parameters: {% call(param1, param2) ... %}
+        if ($this.MatchTypeValue([TokenType]::PUNCTUATION, "(")) {
+            $this.Consume()  # Consume '('
+            
+            # Create call node first (we'll set MacroCall later)
+            $callNode = [CallNode]::new($null, $startToken.Line, $startToken.Column, $startToken.Filename)
+            
+            # Parse parameter names
+            while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, ")")) {
+                $param = $this.Expect([TokenType]::IDENTIFIER).Value
+                [void]$callNode.Parameters.Add($param)
+                
+                # Check for comma (more parameters)
+                if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                    $this.Consume()  # Consume ','
+                } else {
+                    break
+                }
+            }
+            
+            $this.Expect([TokenType]::PUNCTUATION, ")")  # Consume ')'
+            
+            # Now parse the macro call expression
+            $callNode.MacroCall = $this.ParseMacroCallExpression()
+        } else {
+            # No parameters, parse macro call directly
+            $macroCall = $this.ParseMacroCallExpression()
+            $callNode = [CallNode]::new($macroCall, $startToken.Line, $startToken.Column, $startToken.Filename)
+        }
+        
+        # Expect closing %}
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        # Parse call body until {% endcall %}
+        while ($true) {
+            $currentToken = $this.Current()
+            
+            if ($null -eq $currentToken -or $currentToken.Type -eq [TokenType]::EOF) {
+                throw "Unexpected end of template. Expected: endcall"
+            }
+            
+            # Check for {% endcall %}
+            if ($currentToken.Type -eq [TokenType]::BLOCK_START) {
+                $nextToken = $this.PeekOffset(1)
+                if ($null -ne $nextToken -and $nextToken.Type -eq [TokenType]::KEYWORD -and 
+                    $nextToken.Value -eq 'endcall') {
+                    break
+                }
+            }
+            
+            $statement = $this.ParseStatement()
+            if ($null -ne $statement) {
+                $callNode.Body += $statement
+            } else {
+                if ($this.Position -lt $this.Tokens.Count) {
+                    $this.Position++
+                } else {
+                    throw "Unexpected end of template. Expected: endcall"
+                }
+            }
+        }
+        
+        # Consume {% endcall %}
+        $this.Consume()  # BLOCK_START
+        $this.Consume()  # endcall
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        return $callNode
+    }
+    
+    # Parse an import statement {% import 'template.html' as forms %}
+    [ImportNode]ParseImport([Token]$startToken) {
+        # Parse template expression
+        $template = $this.ParseExpression()
+        
+        # Expect 'as' keyword
+        if (-not $this.MatchTypeValue([TokenType]::IDENTIFIER, "as")) {
+            throw "Expected 'as' after template name in import statement"
+        }
+        $this.Consume()  # Consume 'as'
+        
+        # Expect alias name
+        $alias = $this.Expect([TokenType]::IDENTIFIER).Value
+        
+        # Expect closing %}
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        return [ImportNode]::new($template, $alias, $startToken.Line, $startToken.Column, $startToken.Filename)
+    }
+    
+    # Parse a from-import statement {% from 'template.html' import macro1, macro2 as m2 %}
+    [FromImportNode]ParseFromImport([Token]$startToken) {
+        # Parse template expression
+        $template = $this.ParseExpression()
+        
+        # Expect 'import' keyword
+        if (-not $this.MatchTypeValue([TokenType]::KEYWORD, "import")) {
+            throw "Expected 'import' after template name in from statement"
+        }
+        $this.Consume()  # Consume 'import'
+        
+        # Create from-import node
+        $fromImportNode = [FromImportNode]::new($template, $startToken.Line, $startToken.Column, $startToken.Filename)
+        
+        # Parse macro names
+        while ($true) {
+            # Get macro name
+            $macroName = $this.Expect([TokenType]::IDENTIFIER).Value
+            [void]$fromImportNode.MacroNames.Add($macroName)
+            
+            # Check for 'as' alias
+            if ($this.MatchTypeValue([TokenType]::IDENTIFIER, "as")) {
+                $this.Consume()  # Consume 'as'
+                $aliasName = $this.Expect([TokenType]::IDENTIFIER).Value
+                $fromImportNode.Aliases[$macroName] = $aliasName
+            }
+            
+            # Check for comma (more macros)
+            if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                $this.Consume()  # Consume ','
+            } else {
+                break
+            }
+        }
+        
+        # Expect closing %}
+        $this.Expect([TokenType]::BLOCK_END)
+        
+        return $fromImportNode
+    }
+    
+    # Helper method to parse a macro call expression (used in both {{ }} and {% call %})
+    [MacroCallNode]ParseMacroCallExpression() {
+        # Expect macro name
+        $macroName = $this.Expect([TokenType]::IDENTIFIER).Value
+        
+        # Create macro call node
+        $macroCall = [MacroCallNode]::new($macroName, $this.Current().Line, $this.Current().Column, $this.Current().Filename)
+        
+        # Expect opening parenthesis
+        $this.Expect([TokenType]::PUNCTUATION, "(")
+        
+        # Parse arguments
+        while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, ")")) {
+            # Check if this is a named argument (name=value)
+            if ($this.Match([TokenType]::IDENTIFIER)) {
+                $lookahead = $this.PeekOffset(1)
+                if ($null -ne $lookahead -and $lookahead.Type -eq [TokenType]::OPERATOR -and $lookahead.Value -eq '=') {
+                    # Named argument
+                    $argName = $this.Consume().Value
+                    $this.Consume()  # Consume '='
+                    $argValue = $this.ParseExpression()
+                    $macroCall.NamedArguments[$argName] = $argValue
+                } else {
+                    # Positional argument
+                    $arg = $this.ParseExpression()
+                    [void]$macroCall.Arguments.Add($arg)
+                }
+            } else {
+                # Positional argument
+                $arg = $this.ParseExpression()
+                [void]$macroCall.Arguments.Add($arg)
+            }
+            
+            # Check for comma (more arguments)
+            if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                $this.Consume()  # Consume ','
+            } else {
+                break
+            }
+        }
+        
+        # Expect closing parenthesis
+        $this.Expect([TokenType]::PUNCTUATION, ")")
+        
+        return $macroCall
+    }
+    
     # Parse a comment block {# ... #}
     # Comments are ignored in the output
     [void]ParseComment() {
@@ -1961,7 +2586,7 @@ class Parser {
         return $left
     }
     
-    # Parse comparison expressions (e.g., a == b, x > y)
+    # Parse comparison expressions (e.g., a == b, x > y, 'item' in list)
     # Higher precedence than logical operators but lower than additive operators
     [ExpressionNode]ParseComparison() {
         $left = $this.ParseAdditive()  # Parse the left operand (higher precedence)
@@ -1975,6 +2600,64 @@ class Parser {
             $right = $this.ParseAdditive()  # Parse the right operand
             # Create a binary operation node with the left and right operands
             $left = [BinaryOpNode]::new($operator.Value, $left, $right, $operator.Line, $operator.Column, $operator.Filename)
+        }
+        
+        # Check for 'in' operator (e.g., 'item' in list)
+        if ($this.MatchTypeValue([TokenType]::KEYWORD, "in")) {
+            $operator = $this.Consume()  # Consume the 'in' keyword
+            $right = $this.ParseAdditive()  # Parse the right operand (the collection)
+            # Create a binary operation node with the left and right operands
+            $left = [BinaryOpNode]::new($operator.Value, $left, $right, $operator.Line, $operator.Column, $operator.Filename)
+        }
+        
+        # Check for 'is' operator (e.g., variable is defined, number is even)
+        if ($this.MatchTypeValue([TokenType]::KEYWORD, "is")) {
+            $isToken = $this.Consume()  # Consume the 'is' keyword
+            
+            # Check for 'not' negation (e.g., variable is not defined)
+            $negated = $false
+            if ($this.MatchTypeValue([TokenType]::KEYWORD, "not")) {
+                $this.Consume()  # Consume 'not'
+                $negated = $true
+            }
+            
+            # Expect a test name - can be either a keyword or identifier
+            $testNameToken = $this.Current()
+            if ($testNameToken.Type -eq [TokenType]::KEYWORD) {
+                $this.Consume()
+                $testName = $testNameToken.Value
+            } elseif ($testNameToken.Type -eq [TokenType]::IDENTIFIER) {
+                $this.Consume()
+                $testName = $testNameToken.Value
+            } else {
+                throw "Expected test name after 'is' at line $($testNameToken.Line), column $($testNameToken.Column)"
+            }
+            
+            # Validate test name
+            $validTests = @('defined', 'undefined', 'none', 'null', 'even', 'odd', 'divisibleby', 'iterable', 
+                           'number', 'string', 'mapping', 'sequence', 'sameas', 'lower', 'upper', 
+                           'callable', 'equalto', 'escaped')
+            if ($testName -notin $validTests) {
+                throw "Unknown test name '$testName' at line $($testNameToken.Line), column $($testNameToken.Column)"
+            }
+            
+            # Create an IsTestNode
+            $isTestNode = [IsTestNode]::new($left, $testName, $negated, $isToken.Line, $isToken.Column, $isToken.Filename)
+            
+            # Check if this test requires arguments (divisibleby, sameas, equalto)
+            if ($testName -in @('divisibleby', 'sameas', 'equalto')) {
+                # Expect opening parenthesis
+                $this.Expect([TokenType]::PUNCTUATION, "(")
+                
+                # Parse the argument
+                $argument = $this.ParseAdditive()
+                $isTestNode.Arguments += $argument
+                
+                # Expect closing parenthesis
+                $this.Expect([TokenType]::PUNCTUATION, ")")
+            }
+            
+            $left = $isTestNode
         }
         
         return $left
@@ -2031,8 +2714,27 @@ class Parser {
         # Create the appropriate node based on the token type
         switch ($token.Type) {
             ([TokenType]::IDENTIFIER) {
-                # Variable reference (e.g., user, item, etc.)
-                $expr = [VariableNode]::new($token.Value, $token.Line, $token.Column, $token.Filename)
+                # Check for 'self' keyword for self.blockname() calls (Jinja2 compatibility)
+                if ($token.Value -eq 'self') {
+                    # Expect dot
+                    $this.Expect([TokenType]::PUNCTUATION, ".")
+                    # Get block name
+                    $blockNameToken = $this.Expect([TokenType]::IDENTIFIER)
+                    # Expect ()
+                    $this.Expect([TokenType]::PUNCTUATION, "(")
+                    $this.Expect([TokenType]::PUNCTUATION, ")")
+                    
+                    $expr = [SelfCallNode]::new($blockNameToken.Value, $token.Line, $token.Column, $token.Filename)
+                }
+                # Check if this is a macro call (identifier followed by '(')
+                elseif ($this.MatchTypeValue([TokenType]::PUNCTUATION, "(")) {
+                    # This is a macro call - backtrack and parse it
+                    $this.Position--  # Go back to the identifier
+                    $expr = $this.ParseMacroCallExpression()
+                } else {
+                    # Variable reference (e.g., user, item, etc.)
+                    $expr = [VariableNode]::new($token.Value, $token.Line, $token.Column, $token.Filename)
+                }
             }
             ([TokenType]::NUMBER) {
                 # Numeric literal (integer or decimal)
@@ -2064,7 +2766,7 @@ class Parser {
                 }
             }
             ([TokenType]::PUNCTUATION) {
-                # Parenthesized expression (e.g., (a + b)) or array literal (e.g., [1, 2, 3])
+                # Parenthesized expression (e.g., (a + b)), array literal (e.g., [1, 2, 3]), or dict literal (e.g., {'key': 'value'})
                 if ($token.Value -eq '(') {
                     $expr = $this.ParseExpression()  # Parse the expression inside the parentheses
                     $this.Expect([TokenType]::PUNCTUATION, ')', $null)  # Expect closing parenthesis
@@ -2076,7 +2778,7 @@ class Parser {
                     # Parse array elements
                     while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, "]")) {
                         $element = $this.ParseExpression()
-                        $elements.Add($element)
+                        [void]$elements.Add($element)
                         
                         # Check for comma (multiple elements)
                         if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
@@ -2090,19 +2792,61 @@ class Parser {
                     $this.Expect([TokenType]::PUNCTUATION, "]")
                     $expr = [ArrayLiteralNode]::new($elements.ToArray(), $token.Line, $token.Column, $token.Filename)
                 }
+                elseif ($token.Value -eq '{') {
+                    # Dictionary literal - parse key-value pairs
+                    $dictNode = [DictLiteralNode]::new($token.Line, $token.Column, $token.Filename)
+                    
+                    # Parse dictionary pairs
+                    while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, "}")) {
+                        # Parse key (must be a string or identifier)
+                        $key = $this.ParseExpression()
+                        
+                        # Expect colon
+                        $this.Expect([TokenType]::PUNCTUATION, ":")
+                        
+                        # Parse value
+                        $value = $this.ParseExpression()
+                        
+                        # Add key-value pair using void to suppress output
+                        [void]$dictNode.Pairs.Add([System.Tuple]::Create($key, $value))
+                        
+                        # Check for comma (multiple pairs)
+                        if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                            $this.Consume() # Consume ','
+                        } else {
+                            # No comma, expect closing brace
+                            break
+                        }
+                    }
+                    
+                    $this.Expect([TokenType]::PUNCTUATION, "}")
+                    $expr = $dictNode
+                }
             }
             default {
                 throw "Unexpected token in expression: $($token.Type)"
             }
         }
         
-    # Check for property access (e.g., user.name)
-    while ($this.MatchTypeValue([TokenType]::PUNCTUATION, ".")) {
-        $dotToken = $this.Consume()  # Consume the dot
-        $propertyToken = $this.Expect([TokenType]::IDENTIFIER)  # Expect property name
-        # Create a property access node
-        $expr = [PropertyAccessNode]::new($expr, $propertyToken.Value, $dotToken.Line, $dotToken.Column, $dotToken.Filename)
-    }
+        # Check for property access (e.g., user.name) or array indexing (e.g., array[0])
+        while ($true) {
+            if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ".")) {
+                $dotToken = $this.Consume()  # Consume the dot
+                $propertyToken = $this.Expect([TokenType]::IDENTIFIER)  # Expect property name
+                # Create a property access node
+                $expr = [PropertyAccessNode]::new($expr, $propertyToken.Value, $dotToken.Line, $dotToken.Column, $dotToken.Filename)
+            }
+            elseif ($this.MatchTypeValue([TokenType]::PUNCTUATION, "[")) {
+                $bracketToken = $this.Consume()  # Consume the opening bracket
+                $indexExpr = $this.ParseExpression()  # Parse the index expression
+                $this.Expect([TokenType]::PUNCTUATION, "]")  # Expect closing bracket
+                # Create an index access node
+                $expr = [IndexAccessNode]::new($expr, $indexExpr, $bracketToken.Line, $bracketToken.Column, $bracketToken.Filename)
+            }
+            else {
+                break
+            }
+        }
         
         return $expr
     }
@@ -2129,6 +2873,11 @@ class PowershellCompiler {
     # Compile the AST into executable PowerShell code
     # This transforms the template structure into code that can render the template
     [string]Compile([TemplateNode]$template) {
+        return $this.Compile($template, $false)
+    }
+    
+    # Compile with option to skip block rendering (for inheritance)
+    [string]Compile([TemplateNode]$template, [bool]$isChildTemplate) {
         # Reset the code builder and indentation
         $this.Code.Clear()
         $this.IndentLevel = 0
@@ -2147,6 +2896,23 @@ class PowershellCompiler {
         $this.AppendLine('}')
         $this.AppendLine()
         
+        # Initialize recursion depth tracking for self.blockname() calls
+        $this.AppendLine('# Initialize recursion depth tracking for self.blockname() calls')
+        $this.AppendLine('$__SELF_DEPTH__ = @{}')
+        $this.AppendLine()
+        
+        # Collect ALL blocks from the entire AST (including nested blocks in loops, etc.)
+        $allBlocks = $this.CollectAllBlocks($template)
+        
+        # Compile all blocks as functions BEFORE the main template body
+        # This allows self.blockname() to call blocks from anywhere in the template
+        if ($allBlocks.Count -gt 0) {
+            $this.AppendLine('# Compile blocks as functions for self.blockname() support')
+            foreach ($block in $allBlocks) {
+                $this.CompileBlockAsFunction($block)
+            }
+        }
+        
         # Process each node in the template body
         foreach ($node in $template.Body) {
             $this.Visit($node)
@@ -2157,6 +2923,125 @@ class PowershellCompiler {
         $this.AppendLine('return $output.ToString().TrimEnd("`r", "`n")')
         
         return $this.Code.ToString()
+    }
+    
+    # Recursively collect all BlockNode instances from the AST
+    [System.Collections.Generic.List[BlockNode]]CollectAllBlocks([TemplateNode]$template) {
+        $blocks = [System.Collections.Generic.List[BlockNode]]::new()
+        $this.CollectBlocksFromStatements($template.Body, $blocks)
+        return $blocks
+    }
+    
+    # Helper method to recursively collect blocks from statements
+    [void]CollectBlocksFromStatements([StatementNode[]]$statements, [System.Collections.Generic.List[BlockNode]]$blocks) {
+        foreach ($statement in $statements) {
+            if ($statement -is [BlockNode]) {
+                $blocks.Add([BlockNode]$statement)
+            }
+            elseif ($statement -is [ForNode]) {
+                $forNode = [ForNode]$statement
+                $this.CollectBlocksFromStatements($forNode.Body, $blocks)
+                $this.CollectBlocksFromStatements($forNode.ElseBranch, $blocks)
+            }
+            elseif ($statement -is [IfNode]) {
+                $ifNode = [IfNode]$statement
+                $this.CollectBlocksFromStatements($ifNode.ThenBranch, $blocks)
+                $this.CollectBlocksFromStatements($ifNode.ElseBranch, $blocks)
+                if ($null -ne $ifNode.ElifBranch) {
+                    $this.CollectBlocksFromStatements($ifNode.ElifBranch.ThenBranch, $blocks)
+                    $this.CollectBlocksFromStatements($ifNode.ElifBranch.ElseBranch, $blocks)
+                }
+            }
+        }
+    }
+    
+    # Compile a block as a callable function for self.blockname() support (Jinja2 compatibility)
+    # Each block becomes a function that can be called from anywhere in the template
+    [void]CompileBlockAsFunction([BlockNode]$block) {
+        $this.CompileBlockAsFunction($block, $false)
+    }
+    
+    # Compile a block as a callable function with option to compile as parent block
+    [void]CompileBlockAsFunction([BlockNode]$block, [bool]$isParentBlock) {
+        $functionName = if ($isParentBlock) { "__PARENT_BLOCK_$($block.Name)__" } else { "__BLOCK_$($block.Name)__" }
+        
+        $this.AppendLine("# Block function: $($block.Name)$(if ($isParentBlock) { ' (parent)' })")
+        
+        # For scoped blocks, we need to accept all current scope variables as parameters
+        # This allows blocks inside loops to access loop variables
+        if ($block.Scoped) {
+            $this.AppendLine("function script:$functionName {")
+            $this.IndentLevel++
+            $this.AppendLine("param([hashtable]`$__scope_vars__ = @{})")
+            $this.AppendLine()
+            $this.AppendLine("# Import scope variables")
+            $this.AppendLine("foreach (`$__var_name__ in `$__scope_vars__.Keys) {")
+            $this.IndentLevel++
+            $this.AppendLine("Set-Variable -Name `$__var_name__ -Value `$__scope_vars__[`$__var_name__]")
+            $this.IndentLevel--
+            $this.AppendLine("}")
+            $this.AppendLine()
+        } else {
+            $this.AppendLine("function script:$functionName {")
+            $this.IndentLevel++
+        }
+        
+        # Check recursion depth to prevent infinite loops (only for non-parent blocks)
+        if (-not $isParentBlock) {
+            $this.AppendLine("# Check recursion depth")
+            $this.AppendLine("if (-not `$__SELF_DEPTH__.ContainsKey('$($block.Name)')) {")
+            $this.IndentLevel++
+            $this.AppendLine("`$__SELF_DEPTH__['$($block.Name)'] = 0")
+            $this.IndentLevel--
+            $this.AppendLine("}")
+            
+            $this.AppendLine("if (`$__SELF_DEPTH__['$($block.Name)'] -ge [TemplateEngine]::MaxSelfRecursionDepth) {")
+            $this.IndentLevel++
+            $this.AppendLine("throw `"Maximum self recursion depth exceeded for block '$($block.Name)'`"")
+            $this.IndentLevel--
+            $this.AppendLine("}")
+            
+            $this.AppendLine("`$__SELF_DEPTH__['$($block.Name)']++")
+            $this.AppendLine()
+        }
+        
+        # Create output buffer for block
+        $this.AppendLine("`$__block_output__ = [System.Text.StringBuilder]::new()")
+        
+        # Compile block body with a separate compiler instance to avoid mixing code
+        $blockCompiler = [PowershellCompiler]::new()
+        $blockCompiler.CurrentBlock = $block.Name
+        $blockCompiler.ParentBlocks = $this.ParentBlocks
+        # IMPORTANT: Start with IndentLevel = 0 to avoid adding extra indentation
+        $blockCompiler.IndentLevel = 0
+        
+        foreach ($statement in $block.Body) {
+            $blockCompiler.Visit($statement)
+        }
+        
+        $blockCode = $blockCompiler.Code.ToString()
+        
+        # Replace $output with $__block_output__
+        $blockCode = $blockCode.Replace('$output.Append', '$__block_output__.Append')
+        
+        # Add the modified code WITHOUT additional indentation
+        # We add it directly to preserve the original formatting
+        $this.Code.Append($blockCode)
+        
+        # Decrement recursion depth (only for non-parent blocks)
+        if (-not $isParentBlock) {
+            $this.AppendLine()
+            $this.AppendLine("`$__SELF_DEPTH__['$($block.Name)']--")
+        }
+        
+        # Return block output (trim only trailing spaces/tabs, preserve newlines)
+        $this.AppendLine("`$__block_result__ = `$__block_output__.ToString()")
+        $this.AppendLine("`$__block_result__ = `$__block_result__ -replace '[ \t]+`$', ''")
+        $this.AppendLine("return `$__block_result__")
+        
+        $this.IndentLevel--
+        $this.AppendLine("}")
+        $this.AppendLine()
     }
     
     # Visit an AST node and generate the corresponding PowerShell code
@@ -2174,73 +3059,33 @@ class PowershellCompiler {
             "RawNode" { $this.VisitRaw([RawNode]$node) }              # Raw block {% raw ... %}
             "PowerShellBlockNode" { $this.VisitPowerShellBlock([PowerShellBlockNode]$node) }  # PowerShell execution block {% powershell ... %}
             "SetNode" { $this.VisitSet([SetNode]$node) }              # Variable assignment {% set ... %}
+            "MacroNode" { $this.VisitMacro([MacroNode]$node) }        # Macro definition {% macro ... %}
+            "CallNode" { $this.VisitCall([CallNode]$node) }           # Call block {% call ... %}
+            "ImportNode" { $this.VisitImport([ImportNode]$node) }     # Import statement {% import ... %}
+            "FromImportNode" { $this.VisitFromImport([FromImportNode]$node) }  # From-import statement {% from ... import ... %}
             default { throw "Unknown node type: $($node.GetType().Name)" }
         }
     }
     
     [void]VisitBlock([BlockNode]$node) {
-        # Save the current block name for super() support
-        $previousBlock = $this.CurrentBlock
-        $this.CurrentBlock = $node.Name
+        # Blocks are now compiled as functions in Compile() method
+        # They are always rendered by calling their function
         
-        # Check if this block contains super() calls and we have a parent block
-        $hasSuper = $false
-        if ($this.ParentBlocks.ContainsKey($node.Name)) {
-            # Check if any statement in the block body contains super()
-            foreach ($statement in $node.Body) {
-                if ($this.ContainsSuper($statement)) {
-                    $hasSuper = $true
-                    break
-                }
-            }
+        $this.AppendLine("# Block: $($node.Name)")
+        
+        # For scoped blocks, pass current scope variables
+        if ($node.Scoped) {
+            $this.AppendLine("# Collect current scope variables for scoped block")
+            $this.AppendLine("`$__current_scope__ = @{}")
+            $this.AppendLine("Get-Variable | Where-Object { `$_.Name -notmatch '^(__.*__|output|Context|TemplateDir|LoopItems|LoopLength|LoopIndex0)$' } | ForEach-Object {")
+            $this.IndentLevel++
+            $this.AppendLine("`$__current_scope__[`$_.Name] = `$_.Value")
+            $this.IndentLevel--
+            $this.AppendLine("}")
+            $this.AppendLine("`$output.Append((& __BLOCK_$($node.Name)__ -__scope_vars__ `$__current_scope__)) | Out-Null")
+        } else {
+            $this.AppendLine("`$output.Append((& __BLOCK_$($node.Name)__)) | Out-Null")
         }
-        
-        # If we have super() calls, we need to compile parent block first
-        if ($hasSuper) {
-            # Compile parent block content into a variable
-            $parentBlock = $this.ParentBlocks[$node.Name]
-            $savedBlock = $this.CurrentBlock
-            $this.CurrentBlock = $null  # Prevent nested super() in parent
-            
-            # Add comment and variable initialization
-            $this.AppendLine("# Parent block content for super()")
-            $this.AppendLine("`$__SUPER_BLOCK_$($node.Name)__ = [System.Text.StringBuilder]::new()")
-            
-            # Create a NEW compiler instance for the parent block
-            # This ensures we don't mix parent and child code
-            $parentCompiler = [PowershellCompiler]::new()
-            $parentCompiler.CurrentBlock = $null
-            
-            foreach ($statement in $parentBlock.Body) {
-                $parentCompiler.Visit($statement)
-            }
-            
-            $parentCode = $parentCompiler.Code.ToString()
-            
-            # Replace ALL $output.Append with parent block variable appends
-            $modifiedCode = $parentCode.Replace('$output.Append', "`$__SUPER_BLOCK_$($node.Name)__.Append")
-            
-            # Add the modified code line by line
-            $lines = $modifiedCode -split "`r?`n"
-            foreach ($line in $lines) {
-                if (-not [string]::IsNullOrWhiteSpace($line)) {
-                    $this.AppendLine($line.TrimEnd())
-                }
-            }
-            
-            # Convert to string and trim trailing newline for cleaner super() insertion
-            $this.AppendLine("`$__SUPER_BLOCK_$($node.Name)__ = `$__SUPER_BLOCK_$($node.Name)__.ToString().TrimEnd(""`r"", ""`n"")")
-            
-            $this.CurrentBlock = $savedBlock
-        }
-        
-        # Process block content
-        foreach ($statement in $node.Body) {
-            $this.Visit($statement)
-        }
-        
-        # Restore previous block name
-        $this.CurrentBlock = $previousBlock
     }
     
     # Helper method to check if a statement contains super() calls
@@ -2486,7 +3331,16 @@ class PowershellCompiler {
         $this.AppendLine("`$__value__ = $expression")
         $this.AppendLine("if (`$null -ne `$__value__) {")
         $this.IndentLevel++
+        # Use invariant culture for numbers to ensure dot as decimal separator
+        $this.AppendLine("if (`$__value__ -is [double] -or `$__value__ -is [decimal] -or `$__value__ -is [float]) {")
+        $this.IndentLevel++
+        $this.AppendLine("`$output.Append(`$__value__.ToString([System.Globalization.CultureInfo]::InvariantCulture)) | Out-Null")
+        $this.IndentLevel--
+        $this.AppendLine("} else {")
+        $this.IndentLevel++
         $this.AppendLine("`$output.Append(`$__value__.ToString()) | Out-Null")
+        $this.IndentLevel--
+        $this.AppendLine("}")
         $this.IndentLevel--
         $this.AppendLine("}")
     }
@@ -2542,17 +3396,37 @@ class PowershellCompiler {
         # If there's an else branch, we need to check if the iterable is empty
         if ($node.ElseBranch.Count -gt 0) {
             # Store the iterable in a variable to check if it's empty
-            $this.AppendLine("`$__iterable__ = $iterable")
-            $this.AppendLine("if (`$__iterable__ -and (`$__iterable__ -is [array] -and `$__iterable__.Count -gt 0) -or (`$__iterable__ -isnot [array])) {")
+            $this.AppendLine("`$LoopIterable = $iterable")
+            $this.AppendLine("if (`$LoopIterable -and (`$LoopIterable -is [array] -and `$LoopIterable.Count -gt 0) -or (`$LoopIterable -isnot [array])) {")
             $this.IndentLevel++
             
+            # Convert to array if needed and get length
+            $this.AppendLine("`$LoopItems = @(`$LoopIterable)")
+            $this.AppendLine("`$LoopLength = `$LoopItems.Count")
+            $this.AppendLine("`$LoopIndex0 = 0")
+            
             # Generate the foreach loop
-            $this.AppendLine("foreach (`$$($node.Variable) in `$__iterable__) {")
+            $this.AppendLine("foreach (`$$($node.Variable) in `$LoopItems) {")
             $this.IndentLevel++
+            
+            # Create loop variable with all properties
+            $this.AppendLine("# Create loop variable")
+            $this.AppendLine("`$loop = [PSCustomObject]@{")
+            $this.IndentLevel++
+            $this.AppendLine("index = `$LoopIndex0 + 1")
+            $this.AppendLine("index0 = `$LoopIndex0")
+            $this.AppendLine("first = (`$LoopIndex0 -eq 0)")
+            $this.AppendLine("last = (`$LoopIndex0 -eq (`$LoopLength - 1))")
+            $this.AppendLine("length = `$LoopLength")
+            $this.IndentLevel--
+            $this.AppendLine("}")
             
             foreach ($statement in $node.Body) {
                 $this.Visit($statement)
             }
+            
+            # Increment loop counter
+            $this.AppendLine("`$LoopIndex0++")
             
             $this.IndentLevel--
             $this.AppendLine("}")
@@ -2569,13 +3443,34 @@ class PowershellCompiler {
             $this.IndentLevel--
             $this.AppendLine("}")
         } else {
-            # No else branch, generate simple foreach loop
-            $this.AppendLine("foreach (`$$($node.Variable) in $iterable) {")
+            # No else branch, but still need loop variable support
+            # Convert to array if needed and get length
+            $this.AppendLine("`$LoopItems = @($iterable)")
+            $this.AppendLine("`$LoopLength = `$LoopItems.Count")
+            $this.AppendLine("`$LoopIndex0 = 0")
+            
+            # Generate the foreach loop
+            $this.AppendLine("foreach (`$$($node.Variable) in `$LoopItems) {")
             $this.IndentLevel++
+            
+            # Create loop variable with all properties
+            $this.AppendLine("# Create loop variable")
+            $this.AppendLine("`$loop = [PSCustomObject]@{")
+            $this.IndentLevel++
+            $this.AppendLine("index = `$LoopIndex0 + 1")
+            $this.AppendLine("index0 = `$LoopIndex0")
+            $this.AppendLine("first = (`$LoopIndex0 -eq 0)")
+            $this.AppendLine("last = (`$LoopIndex0 -eq (`$LoopLength - 1))")
+            $this.AppendLine("length = `$LoopLength")
+            $this.IndentLevel--
+            $this.AppendLine("}")
             
             foreach ($statement in $node.Body) {
                 $this.Visit($statement)
             }
+            
+            # Increment loop counter
+            $this.AppendLine("`$LoopIndex0++")
             
             $this.IndentLevel--
             $this.AppendLine("}")
@@ -2589,6 +3484,197 @@ class PowershellCompiler {
         
         # Also update the context so the variable is available in included templates
         $this.AppendLine("`$Context['$($node.VariableName)'] = `$$($node.VariableName)")
+    }
+    
+    [void]VisitMacro([MacroNode]$node) {
+        # Generate a PowerShell function for the macro
+        $this.AppendLine("# Macro: $($node.Name)")
+        
+        # Build parameter list
+        $paramList = [System.Collections.Generic.List[string]]::new()
+        foreach ($param in $node.Parameters) {
+            if ($node.Defaults.ContainsKey($param)) {
+                # Parameter with default value
+                $defaultValue = $this.VisitExpression($node.Defaults[$param])
+                $paramList.Add("`$$param = $defaultValue")
+            } else {
+                # Required parameter
+                $paramList.Add("`$$param")
+            }
+        }
+        
+        # Create function definition
+        $this.AppendLine("function __MACRO_$($node.Name)__ {")
+        $this.IndentLevel++
+        
+        if ($paramList.Count -gt 0) {
+            $this.AppendLine("param(")
+            $this.IndentLevel++
+            for ($i = 0; $i -lt $paramList.Count; $i++) {
+                if ($i -lt $paramList.Count - 1) {
+                    $this.AppendLine("$($paramList[$i]),")
+                } else {
+                    $this.AppendLine($paramList[$i])
+                }
+            }
+            $this.IndentLevel--
+            $this.AppendLine(")")
+        }
+        
+        # Create output buffer for macro
+        $this.AppendLine("`$__macro_output__ = [System.Text.StringBuilder]::new()")
+        
+        # Compile macro body
+        foreach ($statement in $node.Body) {
+            # Temporarily replace $output with $__macro_output__
+            $savedCode = $this.Code
+            $this.Code = [System.Text.StringBuilder]::new()
+            
+            $this.Visit($statement)
+            
+            $macroCode = $this.Code.ToString()
+            $this.Code = $savedCode
+            
+            # Replace $output with $__macro_output__
+            $macroCode = $macroCode.Replace('$output.Append', '$__macro_output__.Append')
+            
+            # Add the modified code
+            $lines = $macroCode -split "`r?`n"
+            foreach ($line in $lines) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    $this.AppendLine($line.TrimEnd())
+                }
+            }
+        }
+        
+        # Return macro output (trim trailing newline for cleaner output)
+        $this.AppendLine("return `$__macro_output__.ToString().TrimEnd(""`r"", ""`n"")")
+        
+        $this.IndentLevel--
+        $this.AppendLine("}")
+        $this.AppendLine()
+    }
+    
+    [void]VisitCall([CallNode]$node) {
+        # Generate code for call block with caller() support
+        $macroCall = $node.MacroCall
+        
+        # First, compile the caller block into a function
+        # IMPORTANT: Function name must be __MACRO_caller__ to match macro expectations
+        $this.AppendLine("# Call block with caller()")
+        
+        # Generate caller function with parameters if specified
+        if ($node.Parameters.Count -gt 0) {
+            $paramList = $node.Parameters -join ', $'
+            $this.AppendLine("function __MACRO_caller__ {")
+            $this.IndentLevel++
+            $this.AppendLine("param(`$$paramList)")
+        } else {
+            $this.AppendLine("function __MACRO_caller__ {")
+            $this.IndentLevel++
+        }
+        
+        $this.AppendLine("`$__caller_output__ = [System.Text.StringBuilder]::new()")
+        
+        # Compile caller body
+        foreach ($statement in $node.Body) {
+            # Temporarily replace $output with $__caller_output__
+            $savedCode = $this.Code
+            $this.Code = [System.Text.StringBuilder]::new()
+            
+            $this.Visit($statement)
+            
+            $callerCode = $this.Code.ToString()
+            $this.Code = $savedCode
+            
+            # Replace $output with $__caller_output__
+            $callerCode = $callerCode.Replace('$output.Append', '$__caller_output__.Append')
+            
+            # Add the modified code
+            $lines = $callerCode -split "`r?`n"
+            foreach ($line in $lines) {
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    $this.AppendLine($line.TrimEnd())
+                }
+            }
+        }
+        
+        $this.AppendLine("`$__caller_result__ = `$__caller_output__.ToString()")
+        $this.AppendLine("# Remove all whitespace and newlines, then trim")
+        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '[\r\n\s]+', ' '")
+        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '\s+<', '<'")
+        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '>\s+', '>'")
+        $this.AppendLine("`$__caller_result__ = `$__caller_result__.Trim()")
+        $this.AppendLine("return `$__caller_result__")
+        
+        $this.IndentLevel--
+        $this.AppendLine("}")
+        
+        # Build macro call
+        $macroCallExpr = $this.VisitExpression($macroCall)
+        $this.AppendLine("`$__call_result__ = $macroCallExpr")
+        $this.AppendLine("`$output.Append(`$__call_result__) | Out-Null")
+        
+        # Clean up caller function
+        $this.AppendLine("Remove-Item function:__MACRO_caller__")
+    }
+    
+    [void]VisitImport([ImportNode]$node) {
+        # Import macros from another template
+        $templateExpr = $this.VisitExpression($node.Template)
+        $alias = $node.Alias
+        
+        $this.AppendLine("# Import macros from template as $alias")
+        $this.AppendLine("`$ImportTemplateName = $templateExpr")
+        
+        # Resolve template path
+        $this.AppendLine("if ([string]::IsNullOrEmpty(`$TemplateDir)) {")
+        $this.IndentLevel++
+        $this.AppendLine("`$ImportPath = `$ImportTemplateName")
+        $this.IndentLevel--
+        $this.AppendLine("} else {")
+        $this.IndentLevel++
+        $this.AppendLine("`$ImportPath = Join-Path -Path `$TemplateDir -ChildPath `$ImportTemplateName")
+        $this.IndentLevel--
+        $this.AppendLine("}")
+        
+        # Load and compile the template to extract macros
+        $this.AppendLine("`$ImportContent = [System.IO.File]::ReadAllText(`$ImportPath)")
+        $this.AppendLine("`$ImportEngine = [TemplateEngine]::new()")
+        $this.AppendLine("`$ImportAst = `$ImportEngine.Parse(`$ImportContent, `$ImportTemplateName)")
+        
+        # Create a namespace object to hold the macros
+        $this.AppendLine("`$$alias = [PSCustomObject]@{}")
+        
+        # TODO: Extract and add macro functions to the namespace
+        # This would require compiling the imported template and extracting macro definitions
+    }
+    
+    [void]VisitFromImport([FromImportNode]$node) {
+        # Import specific macros from another template
+        $templateExpr = $this.VisitExpression($node.Template)
+        
+        $this.AppendLine("# Import macros from template")
+        $this.AppendLine("`$ImportTemplateName = $templateExpr")
+        
+        # Resolve template path
+        $this.AppendLine("if ([string]::IsNullOrEmpty(`$TemplateDir)) {")
+        $this.IndentLevel++
+        $this.AppendLine("`$ImportPath = `$ImportTemplateName")
+        $this.IndentLevel--
+        $this.AppendLine("} else {")
+        $this.IndentLevel++
+        $this.AppendLine("`$ImportPath = Join-Path -Path `$TemplateDir -ChildPath `$ImportTemplateName")
+        $this.IndentLevel--
+        $this.AppendLine("}")
+        
+        # Load and compile the template to extract macros
+        $this.AppendLine("`$ImportContent = [System.IO.File]::ReadAllText(`$ImportPath)")
+        $this.AppendLine("`$ImportEngine = [TemplateEngine]::new()")
+        $this.AppendLine("`$ImportAst = `$ImportEngine.Parse(`$ImportContent, `$ImportTemplateName)")
+        
+        # TODO: Extract specific macros and make them available
+        # This would require compiling the imported template and extracting specific macro definitions
     }
     
     [string]VisitExpression([ExpressionNode]$node) {
@@ -2618,6 +3704,12 @@ class PowershellCompiler {
                 $property = $propAccess.Property
                 return "($object).'$property'"
             }
+            "IndexAccessNode" {
+                $indexAccess = [IndexAccessNode]$node
+                $object = $this.VisitExpression($indexAccess.Object)
+                $index = $this.VisitExpression($indexAccess.Index)
+                return "($object)[$index]"
+            }
             "BinaryOpNode" {
                 $binaryOp = [BinaryOpNode]$node
                 $left = $this.VisitExpression($binaryOp.Left)
@@ -2632,6 +3724,7 @@ class PowershellCompiler {
                 elseif ($operator -eq '>=') { $operator = '-ge' }
                 elseif ($operator -eq 'and') { $operator = '-and' }
                 elseif ($operator -eq 'or') { $operator = '-or' }
+                elseif ($operator -eq 'in') { $operator = '-in' }
                 
                 return "($left $operator $right)"
             }
@@ -2639,6 +3732,9 @@ class PowershellCompiler {
                 $filterNode = [FilterNode]$node
                 $expr = $this.VisitExpression($filterNode.Expression)
                 $filterName = $filterNode.FilterName
+                
+                # Capitalize first letter of filter name to match method names
+                $filterName = $filterName.Substring(0, 1).ToUpper() + $filterName.Substring(1).ToLower()
                 
                 # Build arguments string if any
                 $argsStr = ""
@@ -2662,8 +3758,21 @@ class PowershellCompiler {
                 }
                 return "@(" + ($elements -join ", ") + ")"
             }
+            "DictLiteralNode" {
+                # Handle dictionary literal - convert to PowerShell hashtable
+                $dictNode = [DictLiteralNode]$node
+                $pairs = [System.Collections.Generic.List[string]]::new()
+                
+                foreach ($pair in $dictNode.Pairs) {
+                    $key = $this.VisitExpression($pair.Item1)
+                    $value = $this.VisitExpression($pair.Item2)
+                    $pairs.Add("$key = $value")
+                }
+                
+                return "@{" + ($pairs -join "; ") + "}"
+            }
             "SuperNode" {
-                # Handle super() call - insert parent block content
+                # Handle super() call - call parent block function
                 if ($null -eq $this.CurrentBlock) {
                     throw "super() can only be used inside a block"
                 }
@@ -2672,8 +3781,39 @@ class PowershellCompiler {
                     throw "No parent block found for '$($this.CurrentBlock)'"
                 }
                 
-                # Return a placeholder that will be replaced with parent block content
-                return "`$__SUPER_BLOCK_$($this.CurrentBlock)__"
+                # Call the parent block function
+                return "(& __PARENT_BLOCK_$($this.CurrentBlock)__)"
+            }
+            "SelfCallNode" {
+                # Handle self.blockname() call - call block as a function (Jinja2 compatibility)
+                $selfCall = [SelfCallNode]$node
+                # Call the block function using call operator to ensure it's invoked as a function
+                return "(& __BLOCK_$($selfCall.BlockName)__)"
+            }
+            "MacroCallNode" {
+                # Handle macro call expression
+                $macroCall = [MacroCallNode]$node
+                
+                # Build argument list
+                $args = [System.Collections.Generic.List[string]]::new()
+                
+                # Add positional arguments
+                foreach ($arg in $macroCall.Arguments) {
+                    $args.Add($this.VisitExpression($arg))
+                }
+                
+                # Add named arguments
+                foreach ($key in $macroCall.NamedArguments.Keys) {
+                    $value = $this.VisitExpression($macroCall.NamedArguments[$key])
+                    $args.Add("-$key $value")
+                }
+                
+                # Generate function call - wrap in parentheses for filter compatibility
+                if ($args.Count -gt 0) {
+                    return "(__MACRO_$($macroCall.MacroName)__ $($args -join ' '))"
+                } else {
+                    return "(__MACRO_$($macroCall.MacroName)__)"
+                }
             }
             "ConditionalExpressionNode" {
                 # Handle conditional (ternary) expression: 'yes' if foo else 'no'
@@ -2686,6 +3826,112 @@ class PowershellCompiler {
                 # PowerShell 7+ supports: condition ? trueValue : falseValue
                 # For compatibility, we use: @{$true=trueValue; $false=falseValue}[condition]
                 return "(@{`$true=$trueValue; `$false=$falseValue}[$condition])"
+            }
+            "IsTestNode" {
+                # Handle 'is' test expression: variable is defined, number is even, etc.
+                $isTest = [IsTestNode]$node
+                $expr = $this.VisitExpression($isTest.Expression)
+                $testName = $isTest.TestName
+                $negated = $isTest.Negated
+                
+                # Generate PowerShell code based on the test type
+                $testCode = switch ($testName) {
+                    'defined' {
+                        # Check if variable is defined (not null)
+                        "(`$null -ne $expr)"
+                    }
+                    'none' {
+                        # Check if value is null
+                        "(`$null -eq $expr)"
+                    }
+                    'null' {
+                        # Check if value is null (alias for 'none')
+                        "(`$null -eq $expr)"
+                    }
+                    'even' {
+                        # Check if number is even
+                        "(($expr) % 2 -eq 0)"
+                    }
+                    'odd' {
+                        # Check if number is odd
+                        "(($expr) % 2 -ne 0)"
+                    }
+                    'divisibleby' {
+                        # Check if number is divisible by n
+                        if ($isTest.Arguments.Count -eq 0) {
+                            throw "Test 'divisibleby' requires an argument"
+                        }
+                        $arg = $this.VisitExpression($isTest.Arguments[0])
+                        "(($expr) % ($arg) -eq 0)"
+                    }
+                    'iterable' {
+                        # Check if value is iterable (array or implements IEnumerable)
+                        "($expr -is [array] -or ($expr -is [System.Collections.IEnumerable] -and $expr -isnot [string]))"
+                    }
+                    'number' {
+                        # Check if value is a number
+                        "($expr -is [int] -or $expr -is [long] -or $expr -is [double] -or $expr -is [decimal] -or $expr -is [float] -or $expr -is [byte] -or $expr -is [int16] -or $expr -is [int64])"
+                    }
+                    'string' {
+                        # Check if value is a string
+                        "($expr -is [string])"
+                    }
+                    'mapping' {
+                        # Check if value is a mapping (hashtable or dictionary)
+                        "($expr -is [hashtable] -or $expr -is [System.Collections.IDictionary])"
+                    }
+                    'sequence' {
+                        # Check if value is a sequence (array or string)
+                        "($expr -is [array] -or $expr -is [string])"
+                    }
+                    'sameas' {
+                        # Check if values are the same object (reference equality)
+                        if ($isTest.Arguments.Count -eq 0) {
+                            throw "Test 'sameas' requires an argument"
+                        }
+                        $arg = $this.VisitExpression($isTest.Arguments[0])
+                        "([object]::ReferenceEquals($expr, $arg))"
+                    }
+                    'lower' {
+                        # Check if string is lowercase
+                        "($expr -is [string] -and $expr -ceq $expr.ToLower())"
+                    }
+                    'upper' {
+                        # Check if string is uppercase
+                        "($expr -is [string] -and $expr -ceq $expr.ToUpper())"
+                    }
+                    'undefined' {
+                        # Check if variable is undefined (null) - opposite of 'defined'
+                        "(`$null -eq $expr)"
+                    }
+                    'callable' {
+                        # Check if value is callable (scriptblock or function)
+                        "($expr -is [scriptblock] -or $expr -is [System.Management.Automation.FunctionInfo] -or $expr -is [System.Management.Automation.CommandInfo])"
+                    }
+                    'equalto' {
+                        # Check if value equals another value
+                        if ($isTest.Arguments.Count -eq 0) {
+                            throw "Test 'equalto' requires an argument"
+                        }
+                        $arg = $this.VisitExpression($isTest.Arguments[0])
+                        "(($expr) -eq ($arg))"
+                    }
+                    'escaped' {
+                        # Check if string is HTML-escaped
+                        # A string is considered escaped if it contains HTML entities
+                        "($expr -is [string] -and ($expr -match '&(amp|lt|gt|quot|#39);'))"
+                    }
+                    default {
+                        throw "Unknown test: $testName"
+                    }
+                }
+                
+                # Apply negation if needed
+                if ($negated) {
+                    return "(-not $testCode)"
+                } else {
+                    return $testCode
+                }
             }
             default {
                 throw "Unknown expression type: $($node.GetType().Name)"
@@ -2709,6 +3955,7 @@ class PowershellCompiler {
 # Handles tokenization, parsing, compilation, and rendering of templates
 class TemplateEngine {
     static [hashtable]$Cache = @{}
+    static [int]$MaxSelfRecursionDepth = 1  # Maximum recursion depth for self.blockname() calls (Jinja2 compatibility)
     [string]$TemplateDir  # Directory where templates are located
     
     TemplateEngine() {
@@ -2718,8 +3965,10 @@ class TemplateEngine {
     # Render a template with the given context variables
     # This is the main public method for template rendering
     [string]Render([string]$template, [hashtable]$context) {
-        # Use template hash as cache key
-        $cacheKey = $template.GetHashCode()
+        # Create cache key that includes template hash AND prefix settings
+        # This ensures that changing prefixes invalidates the cache
+        $prefixKey = "$([Lexer]::LINE_STATEMENT_PREFIX)|$([Lexer]::LINE_COMMENT_PREFIX)"
+        $cacheKey = "$($template.GetHashCode())|$prefixKey"
         
         # Check if the template is already compiled and cached
         if (-not [TemplateEngine]::Cache.ContainsKey($cacheKey)) {
@@ -2759,6 +4008,7 @@ class TemplateEngine {
         $lexer = [Lexer]::new()
         $tokens = $lexer.Tokenize($template, $filename)
         $parser = [Parser]::new($tokens, $filename)
+        $parser.SourceText = $template  # Store the original template text
         return $parser.ParseTemplate()
     }
     
@@ -2788,7 +4038,52 @@ class TemplateEngine {
             $compiler.ParentBlocks[$blockName] = $parentAst.Blocks[$blockName]
         }
         
-        $powershellCode = $compiler.Compile($mergedAst)
+        $powershellCode = $compiler.Compile($mergedAst, $true)
+        
+        # Now we need to prepend parent block functions to the compiled code
+        # This allows super() to call parent block functions
+        $parentFunctionsCode = [System.Text.StringBuilder]::new()
+        
+        foreach ($blockName in $parentAst.Blocks.Keys) {
+            # Only compile parent blocks that are overridden in child
+            if ($childAst.Blocks.ContainsKey($blockName)) {
+                $parentBlock = $parentAst.Blocks[$blockName]
+                
+                # Create a temporary compiler for parent block
+                $parentBlockCompiler = [PowershellCompiler]::new()
+                $parentBlockCompiler.CompileBlockAsFunction($parentBlock, $true)
+                
+                # Add the parent block function code
+                $parentFunctionsCode.Append($parentBlockCompiler.Code.ToString())
+            }
+        }
+        
+        # Combine parent functions with main code
+        # Insert parent functions after the param() and variable initialization but before block functions
+        $lines = $powershellCode -split "`r?`n"
+        $insertIndex = 0
+        
+        # Find where to insert (after $__SELF_DEPTH__ initialization)
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '\$__SELF_DEPTH__\s*=\s*@\{\}') {
+                $insertIndex = $i + 2  # After the line and the blank line
+                break
+            }
+        }
+        
+        # Insert parent block functions
+        if ($parentFunctionsCode.Length -gt 0) {
+            $beforeLines = $lines[0..($insertIndex - 1)]
+            $afterLines = $lines[$insertIndex..($lines.Count - 1)]
+            
+            $finalCode = ($beforeLines -join "`n") + "`n" + 
+                        "# Parent block functions for super() support`n" +
+                        $parentFunctionsCode.ToString() + 
+                        ($afterLines -join "`n")
+            
+            $powershellCode = $finalCode
+        }
+        
         $scriptBlock = [scriptblock]::Create($powershellCode)
         
         return & $scriptBlock $context $this.TemplateDir
@@ -2833,6 +4128,7 @@ class TemplateEngine {
             # Step 2: Parsing - Convert tokens into an Abstract Syntax Tree (AST)
             Write-Host "Parsing tokens..."
             $parser = [Parser]::new($tokens, $filename)
+            $parser.SourceText = $template  # Store the original template text
             $ast = $parser.ParseTemplate()
             
             # Step 3: Compilation - Convert AST into PowerShell code
@@ -2879,7 +4175,10 @@ class TemplateError : Exception {
 # Static class containing all built-in filters for the template engine
 # Filters transform values in the template (e.g., uppercase, lowercase, formatting)
 class AltarFilters {
-    # String filters
+    
+    # ==================== STRING FILTERS ====================
+    
+    # Capitalize the first character and lowercase the rest
     static [string]Capitalize([string]$value) {
         if ([string]::IsNullOrEmpty($value)) {
             return ""
@@ -2887,46 +4186,234 @@ class AltarFilters {
         return [char]::ToUpper($value[0]) + $value.Substring(1).ToLower()
     }
     
+    # Convert to uppercase
     static [string]Upper([string]$value) {
         return $value.ToUpper()
     }
     
+    # Convert to lowercase
     static [string]Lower([string]$value) {
         return $value.ToLower()
     }
     
+    # Convert to title case (capitalize each word)
     static [string]Title([string]$value) {
         $textInfo = (Get-Culture).TextInfo
         return $textInfo.ToTitleCase($value.ToLower())
     }
     
+    # Trim whitespace from both ends
     static [string]Trim([string]$value) {
         return $value.Trim()
     }
     
+    # Replace old substring with new substring
     static [string]Replace([string]$value, [string]$old, [string]$new) {
         return $value.Replace($old, $new)
     }
     
-    # List filters
-    static [array]First([array]$value) {
-        if ($value.Count -eq 0) {
-            return $null
+    # Replace old substring with new substring (with count limit)
+    static [string]Replace([string]$value, [string]$old, [string]$new, [int]$count) {
+        if ($count -le 0) {
+            return $value.Replace($old, $new)
         }
-        return $value[0]
-    }
-    
-    static [array]Last([array]$value) {
-        if ($value.Count -eq 0) {
-            return $null
+        
+        $result = $value
+        $replacements = 0
+        $startIndex = 0
+        
+        while ($replacements -lt $count) {
+            $index = $result.IndexOf($old, $startIndex)
+            if ($index -eq -1) {
+                break
+            }
+            
+            $result = $result.Substring(0, $index) + $new + $result.Substring($index + $old.Length)
+            $startIndex = $index + $new.Length
+            $replacements++
         }
-        return $value[-1]
+        
+        return $result
     }
     
-    static [array]Join([array]$value, [string]$delimiter = "") {
-        return $value -join $delimiter
+    # Center string in a field of given width
+    static [string]Center([string]$value, [int]$width) {
+        if ($value.Length -ge $width) {
+            return $value
+        }
+        $totalPadding = $width - $value.Length
+        $leftPadding = [Math]::Floor($totalPadding / 2)
+        $rightPadding = $totalPadding - $leftPadding
+        return (' ' * $leftPadding) + $value + (' ' * $rightPadding)
     }
     
+    # Left-justify string in a field of given width
+    static [string]Ljust([string]$value, [int]$width) {
+        return $value.PadRight($width)
+    }
+    
+    # Right-justify string in a field of given width
+    static [string]Rjust([string]$value, [int]$width) {
+        return $value.PadLeft($width)
+    }
+    
+    # Reverse a string
+    static [string]Reverse([string]$value) {
+        $charArray = $value.ToCharArray()
+        [Array]::Reverse($charArray)
+        return -join $charArray
+    }
+    
+    # Indent each line by a given number of spaces
+    static [string]Indent([string]$value, [int]$width = 4, [bool]$indentFirstLine = $false) {
+        $lines = $value -split "`r?`n"
+        $indent = ' ' * $width
+        
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($i -eq 0 -and -not $indentFirstLine) {
+                continue
+            }
+            $lines[$i] = $indent + $lines[$i]
+        }
+        
+        return $lines -join "`n"
+    }
+    
+    # Strip HTML tags from string
+    static [string]Striptags([string]$value) {
+        return $value -replace '<[^>]+>', ''
+    }
+    
+    # Truncate string to given length
+    static [string]Truncate([string]$value) {
+        return [AltarFilters]::Truncate($value, 255, $false, '...')
+    }
+    
+    static [string]Truncate([string]$value, [int]$length) {
+        return [AltarFilters]::Truncate($value, $length, $false, '...')
+    }
+    
+    static [string]Truncate([string]$value, [int]$length, [bool]$killwords) {
+        return [AltarFilters]::Truncate($value, $length, $killwords, '...')
+    }
+    
+    static [string]Truncate([string]$value, [int]$length, [bool]$killwords, [string]$end) {
+        if ($value.Length -le $length) {
+            return $value
+        }
+        
+        if ($killwords) {
+            return $value.Substring(0, $length - $end.Length) + $end
+        }
+        
+        # Find last space before length
+        $truncated = $value.Substring(0, $length - $end.Length)
+        $lastSpace = $truncated.LastIndexOf(' ')
+        
+        if ($lastSpace -gt 0) {
+            $truncated = $truncated.Substring(0, $lastSpace)
+        }
+        
+        return $truncated + $end
+    }
+    
+    # Count words in string
+    static [int]Wordcount([string]$value) {
+        if ([string]::IsNullOrWhiteSpace($value)) {
+            return 0
+        }
+        return ($value -split '\s+').Count
+    }
+    
+    # Wrap text to specified width
+    static [string]Wordwrap([string]$value, [int]$width = 79, [bool]$breakLongWords = $true) {
+        $words = $value -split '\s+'
+        $lines = [System.Collections.Generic.List[string]]::new()
+        $currentLine = ""
+        
+        foreach ($word in $words) {
+            if ($currentLine.Length -eq 0) {
+                $currentLine = $word
+            }
+            elseif (($currentLine.Length + 1 + $word.Length) -le $width) {
+                $currentLine += " " + $word
+            }
+            else {
+                $lines.Add($currentLine)
+                $currentLine = $word
+            }
+            
+            # Handle words longer than width
+            if ($breakLongWords -and $currentLine.Length -gt $width) {
+                while ($currentLine.Length -gt $width) {
+                    $lines.Add($currentLine.Substring(0, $width))
+                    $currentLine = $currentLine.Substring($width)
+                }
+            }
+        }
+        
+        if ($currentLine.Length -gt 0) {
+            $lines.Add($currentLine)
+        }
+        
+        return $lines -join "`n"
+    }
+    
+    # ==================== ESCAPE FILTERS ====================
+    
+    # HTML escape (also aliased as 'escape')
+    static [string]HtmlEscape([string]$value) {
+        return $value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;").Replace("'", "&#39;")
+    }
+    
+    # Alias for HtmlEscape
+    static [string]Escape([string]$value) {
+        return [AltarFilters]::HtmlEscape($value)
+    }
+    
+    # Force escape even if already marked safe
+    static [string]Forceescape([string]$value) {
+        return [AltarFilters]::HtmlEscape($value)
+    }
+    
+    # URL encode
+    static [string]UrlEncode([string]$value) {
+        return [System.Uri]::EscapeDataString($value)
+    }
+    
+    # ==================== LIST/SEQUENCE FILTERS ====================
+    
+    # Get first element
+    static [object]First([object]$value) {
+        if ($value -is [array] -and $value.Count -gt 0) {
+            return $value[0]
+        }
+        if ($value -is [string] -and $value.Length -gt 0) {
+            return $value[0]
+        }
+        return $null
+    }
+    
+    # Get last element
+    static [object]Last([object]$value) {
+        if ($value -is [array] -and $value.Count -gt 0) {
+            return $value[-1]
+        }
+        if ($value -is [string] -and $value.Length -gt 0) {
+            return $value[-1]
+        }
+        return $null
+    }
+    
+    # Join array elements with delimiter
+    static [string]Join([object]$value, [string]$delimiter = "") {
+        if ($value -is [array]) {
+            return $value -join $delimiter
+        }
+        return $value.ToString()
+    }
+    
+    # Get length of sequence
     static [int]Length([object]$value) {
         if ($value -is [array]) {
             return $value.Count
@@ -2940,32 +4427,519 @@ class AltarFilters {
         return 0
     }
     
-    # Default filter
-    static [string]Default([object]$value, [object]$defaultValue) {
+    # Reverse a sequence
+    static [object]Reverse([object]$value) {
+        if ($value -is [array]) {
+            $reversed = $value.Clone()
+            [Array]::Reverse($reversed)
+            return $reversed
+        }
+        if ($value -is [string]) {
+            $charArray = $value.ToCharArray()
+            [Array]::Reverse($charArray)
+            return -join $charArray
+        }
+        return $value
+    }
+    
+    # Sort a sequence
+    static [object]Sort([object]$value) {
+        return [AltarFilters]::Sort($value, $false, $null)
+    }
+    
+    static [object]Sort([object]$value, [bool]$reverse) {
+        return [AltarFilters]::Sort($value, $reverse, $null)
+    }
+    
+    static [object]Sort([object]$value, [bool]$reverse, [string]$attribute) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        if ([string]::IsNullOrEmpty($attribute)) {
+            if ($reverse) {
+                return $value | Sort-Object -Descending
+            }
+            return $value | Sort-Object
+        }
+        else {
+            if ($reverse) {
+                return $value | Sort-Object -Property $attribute -Descending
+            }
+            return $value | Sort-Object -Property $attribute
+        }
+    }
+    
+    # Get unique elements
+    static [object]Unique([object]$value) {
+        if ($value -is [array]) {
+            return $value | Select-Object -Unique
+        }
+        return $value
+    }
+    
+    # Batch items into groups
+    static [object]Batch([object]$value, [int]$linecount, [object]$fillWith = $null) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        $batches = [System.Collections.Generic.List[object]]::new()
+        for ($i = 0; $i -lt $value.Count; $i += $linecount) {
+            $batch = [System.Collections.Generic.List[object]]::new()
+            
+            for ($j = 0; $j -lt $linecount; $j++) {
+                $index = $i + $j
+                if ($index -lt $value.Count) {
+                    $batch.Add($value[$index])
+                }
+                elseif ($null -ne $fillWith) {
+                    $batch.Add($fillWith)
+                }
+            }
+            
+            $batches.Add($batch.ToArray())
+        }
+        
+        return $batches.ToArray()
+    }
+    
+    # Slice a sequence
+    static [object]Slice([object]$value, [int]$slices, [object]$fillWith = $null) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        $itemsPerSlice = [Math]::Ceiling($value.Count / $slices)
+        return [AltarFilters]::Batch($value, $itemsPerSlice, $fillWith)
+    }
+    
+    # Sum numeric values
+    static [object]Sum([object]$value) {
+        return [AltarFilters]::Sum($value, $null, 0)
+    }
+    
+    static [object]Sum([object]$value, [string]$attribute) {
+        return [AltarFilters]::Sum($value, $attribute, 0)
+    }
+    
+    static [object]Sum([object]$value, [string]$attribute, [object]$start) {
+        if ($value -isnot [array]) {
+            return $start
+        }
+        
+        $sum = $start
+        
+        if ([string]::IsNullOrEmpty($attribute)) {
+            foreach ($item in $value) {
+                if ($item -is [int] -or $item -is [double] -or $item -is [decimal]) {
+                    $sum += $item
+                }
+            }
+        }
+        else {
+            foreach ($item in $value) {
+                if ($item -is [hashtable] -and $item.ContainsKey($attribute)) {
+                    $sum += $item[$attribute]
+                }
+                elseif ($null -ne $item.$attribute) {
+                    $sum += $item.$attribute
+                }
+            }
+        }
+        
+        return $sum
+    }
+    
+    # Get minimum value
+    static [object]Min([object]$value) {
+        if ($value -is [array] -and $value.Count -gt 0) {
+            return ($value | Measure-Object -Minimum).Minimum
+        }
+        return $value
+    }
+    
+    # Get maximum value
+    static [object]Max([object]$value) {
+        if ($value -is [array] -and $value.Count -gt 0) {
+            return ($value | Measure-Object -Maximum).Maximum
+        }
+        return $value
+    }
+    
+    # Get random element
+    static [object]Random([object]$value) {
+        if ($value -is [array] -and $value.Count -gt 0) {
+            return $value | Get-Random
+        }
+        return $value
+    }
+    
+    # Select items where attribute is true
+    static [object]Select([object]$value, [string]$attribute = $null) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        if ([string]::IsNullOrEmpty($attribute)) {
+            return $value | Where-Object { $_ }
+        }
+        
+        return $value | Where-Object { $_.$attribute }
+    }
+    
+    # Reject items where attribute is true
+    static [object]Reject([object]$value, [string]$attribute = $null) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        if ([string]::IsNullOrEmpty($attribute)) {
+            return $value | Where-Object { -not $_ }
+        }
+        
+        return $value | Where-Object { -not $_.$attribute }
+    }
+    
+    # Select items where attribute equals test value
+    static [object]Selectattr([object]$value, [string]$attribute, [string]$test = "==", [object]$testValue = $true) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        $result = switch ($test) {
+            "==" { $value | Where-Object { $_.$attribute -eq $testValue } }
+            "!=" { $value | Where-Object { $_.$attribute -ne $testValue } }
+            ">" { $value | Where-Object { $_.$attribute -gt $testValue } }
+            "<" { $value | Where-Object { $_.$attribute -lt $testValue } }
+            ">=" { $value | Where-Object { $_.$attribute -ge $testValue } }
+            "<=" { $value | Where-Object { $_.$attribute -le $testValue } }
+            default { $value | Where-Object { $_.$attribute -eq $testValue } }
+        }
+        return $result
+    }
+    
+    # Reject items where attribute equals test value
+    static [object]Rejectattr([object]$value, [string]$attribute, [string]$test = "==", [object]$testValue = $true) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        $result = switch ($test) {
+            "==" { $value | Where-Object { $_.$attribute -ne $testValue } }
+            "!=" { $value | Where-Object { $_.$attribute -eq $testValue } }
+            ">" { $value | Where-Object { $_.$attribute -le $testValue } }
+            "<" { $value | Where-Object { $_.$attribute -ge $testValue } }
+            ">=" { $value | Where-Object { $_.$attribute -lt $testValue } }
+            "<=" { $value | Where-Object { $_.$attribute -gt $testValue } }
+            default { $value | Where-Object { $_.$attribute -ne $testValue } }
+        }
+        return $result
+    }
+    
+    # Map attribute from items
+    static [object]Map([object]$value, [string]$attribute) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        return $value | ForEach-Object { $_.$attribute }
+    }
+    
+    # Group items by attribute
+    static [object]Groupby([object]$value, [string]$attribute) {
+        if ($value -isnot [array]) {
+            return $value
+        }
+        
+        return $value | Group-Object -Property $attribute
+    }
+    
+    # ==================== NUMBER FILTERS ====================
+    
+    # Absolute value
+    static [object]Abs([object]$value) {
+        if ($value -is [int] -or $value -is [double] -or $value -is [decimal]) {
+            return [Math]::Abs($value)
+        }
+        return $value
+    }
+    
+    # Convert to integer
+    static [int]Int([object]$value) {
+        return [AltarFilters]::Int($value, 0)
+    }
+    
+    static [int]Int([object]$value, [int]$default) {
+        try {
+            return [int]$value
+        }
+        catch {
+            return $default
+        }
+    }
+    
+    # Convert to float
+    static [double]Float([object]$value) {
+        return [AltarFilters]::Float($value, 0.0)
+    }
+    
+    static [double]Float([object]$value, [double]$default) {
+        try {
+            return [double]$value
+        }
+        catch {
+            return $default
+        }
+    }
+    
+    # Round number
+    static [object]Round([object]$value) {
+        return [AltarFilters]::Round($value, 0, "common")
+    }
+    
+    static [object]Round([object]$value, [int]$precision) {
+        return [AltarFilters]::Round($value, $precision, "common")
+    }
+    
+    static [object]Round([object]$value, [int]$precision, [string]$method) {
+        if ($value -isnot [int] -and $value -isnot [double] -and $value -isnot [decimal]) {
+            return $value
+        }
+        
+        $result = switch ($method) {
+            "common" { [Math]::Round($value, $precision) }
+            "ceil" { [Math]::Ceiling($value) }
+            "floor" { [Math]::Floor($value) }
+            default { [Math]::Round($value, $precision) }
+        }
+        return $result
+    }
+    
+    # ==================== DICTIONARY FILTERS ====================
+    
+    # Sort dictionary by keys or values
+    static [object]Dictsort([object]$value, [bool]$byValue = $false, [bool]$reverse = $false) {
+        if ($value -isnot [hashtable]) {
+            return $value
+        }
+        
+        if ($byValue) {
+            if ($reverse) {
+                return $value.GetEnumerator() | Sort-Object -Property Value -Descending
+            }
+            return $value.GetEnumerator() | Sort-Object -Property Value
+        }
+        else {
+            if ($reverse) {
+                return $value.GetEnumerator() | Sort-Object -Property Key -Descending
+            }
+            return $value.GetEnumerator() | Sort-Object -Property Key
+        }
+    }
+    
+    # Get dictionary items as array of [key, value] pairs
+    static [object]Items([object]$value) {
+        if ($value -is [hashtable]) {
+            $items = [System.Collections.Generic.List[object]]::new()
+            foreach ($key in $value.Keys) {
+                $items.Add(@($key, $value[$key]))
+            }
+            return $items.ToArray()
+        }
+        return $value
+    }
+    
+    # Get attribute value
+    static [object]Attr([object]$value, [string]$name) {
+        if ($value -is [hashtable]) {
+            return $value[$name]
+        }
+        return $value.$name
+    }
+    
+    # ==================== CONVERSION FILTERS ====================
+    
+    # Convert to list/array
+    static [object]List([object]$value) {
+        if ($value -is [array]) {
+            return $value
+        }
+        if ($value -is [string]) {
+            return $value.ToCharArray()
+        }
+        if ($value -is [hashtable]) {
+            return $value.Values
+        }
+        return @($value)
+    }
+    
+    # Convert to JSON
+    static [string]Tojson([object]$value) {
+        return $value | ConvertTo-Json -Compress
+    }
+    
+    static [string]Tojson([object]$value, [int]$indent) {
+        return $value | ConvertTo-Json -Depth 10
+    }
+    
+    # Pretty print
+    static [string]Pprint([object]$value) {
+        return $value | ConvertTo-Json -Depth 10
+    }
+    
+    # ==================== OTHER FILTERS ====================
+    
+    # Default value if undefined or empty
+    static [object]Default([object]$value) {
+        return [AltarFilters]::Default($value, "", $false)
+    }
+    
+    static [object]Default([object]$value, [object]$defaultValue) {
+        return [AltarFilters]::Default($value, $defaultValue, $false)
+    }
+    
+    static [object]Default([object]$value, [object]$defaultValue, [bool]$boolean) {
+        if ($boolean) {
+            if (-not $value) {
+                return $defaultValue
+            }
+            return $value
+        }
+        
         if ($null -eq $value -or ($value -is [string] -and [string]::IsNullOrEmpty($value))) {
             return $defaultValue
         }
         return $value
     }
     
-    # Escape filters
-    static [string]HtmlEscape([string]$value) {
-        return $value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;").Replace("'", "&#39;")
+    # Format file size
+    static [string]Filesizeformat([object]$value) {
+        return [AltarFilters]::Filesizeformat($value, $false)
     }
     
-    static [string]UrlEncode([string]$value) {
-        # Use built-in .NET class instead of System.Web.HttpUtility
-        return [System.Uri]::EscapeDataString($value)
+    static [string]Filesizeformat([object]$value, [bool]$binary) {
+        $bytes = [double]$value
+        $base = if ($binary) { 1024 } else { 1000 }
+        $units = if ($binary) { @("Bytes", "KiB", "MiB", "GiB", "TiB", "PiB") } else { @("Bytes", "kB", "MB", "GB", "TB", "PB") }
+        
+        if ($bytes -lt $base) {
+            return "$bytes $($units[0])"
+        }
+        
+        $exp = [Math]::Floor([Math]::Log($bytes) / [Math]::Log($base))
+        $exp = [Math]::Min($exp, $units.Count - 1)
+        
+        $size = $bytes / [Math]::Pow($base, $exp)
+        # Use invariant culture to ensure dot as decimal separator
+        return $size.ToString("N1", [System.Globalization.CultureInfo]::InvariantCulture) + " " + $units[$exp]
     }
     
-    # Format filters
+    # Generate XML attributes
+    static [string]Xmlattr([object]$value) {
+        return [AltarFilters]::Xmlattr($value, $true)
+    }
+    
+    static [string]Xmlattr([object]$value, [bool]$autospace) {
+        if ($value -isnot [hashtable]) {
+            return ""
+        }
+        
+        $attrs = [System.Collections.Generic.List[string]]::new()
+        foreach ($key in $value.Keys) {
+            $val = $value[$key]
+            if ($null -ne $val -and $val -ne $false) {
+                $escapedValue = $val.ToString().Replace('"', '&quot;')
+                $attrs.Add("$key=`"$escapedValue`"")
+            }
+        }
+        
+        $result = $attrs -join " "
+        if ($autospace -and $result.Length -gt 0) {
+            return " " + $result
+        }
+        return $result
+    }
+    
+    # ==================== FORMAT FILTERS ====================
+    
+    # Format value with format string
     static [string]Format([object]$value, [string]$format) {
         return $value.ToString($format)
     }
     
-    # Date filters
+    # Format date
     static [string]DateFormat([datetime]$value, [string]$format = "yyyy-MM-dd") {
         return $value.ToString($format)
+    }
+    
+    # Safe filter (mark as safe HTML - for now just returns the value)
+    static [string]Safe([string]$value) {
+        return $value
+    }
+    
+    # Convert object to string
+    static [string]String([object]$value) {
+        if ($null -eq $value) {
+            return ""
+        }
+        return $value.ToString()
+    }
+    
+    # Convert URLs in plain text into clickable links
+    static [string]Urlize([string]$value) {
+        return [AltarFilters]::Urlize($value, $null, $false, $null)
+    }
+    
+    static [string]Urlize([string]$value, [int]$trimUrlLimit) {
+        return [AltarFilters]::Urlize($value, $trimUrlLimit, $false, $null)
+    }
+    
+    static [string]Urlize([string]$value, [int]$trimUrlLimit, [bool]$nofollow) {
+        return [AltarFilters]::Urlize($value, $trimUrlLimit, $nofollow, $null)
+    }
+    
+    static [string]Urlize([string]$value, [object]$trimUrlLimit, [bool]$nofollow, [string]$target) {
+        if ([string]::IsNullOrEmpty($value)) {
+            return $value
+        }
+        
+        # Regex pattern to match URLs
+        $urlPattern = '(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:''".,<>?«»""'']))'
+        
+        $result = [regex]::Replace($value, $urlPattern, {
+            param($match)
+            
+            $url = $match.Value
+            $displayUrl = $url
+            
+            # Add http:// if URL starts with www
+            $href = $url
+            if ($url -match '^www\.') {
+                $href = "http://$url"
+            }
+            
+            # Trim URL for display if limit is specified
+            if ($null -ne $trimUrlLimit -and $trimUrlLimit -gt 0 -and $displayUrl.Length -gt $trimUrlLimit) {
+                $displayUrl = $displayUrl.Substring(0, $trimUrlLimit) + "..."
+            }
+            
+            # Build the anchor tag
+            $attrs = [System.Collections.Generic.List[string]]::new()
+            $attrs.Add("href=`"$href`"")
+            
+            if ($nofollow) {
+                $attrs.Add('rel="nofollow"')
+            }
+            
+            if (-not [string]::IsNullOrEmpty($target)) {
+                $attrs.Add("target=`"$target`"")
+            }
+            
+            return "<a $($attrs -join ' ')>$displayUrl</a>"
+        })
+        
+        return $result
     }
 }
 
@@ -2981,12 +4955,29 @@ function Invoke-AltarTemplate {
         [string]$Template,
         
         [Parameter(Mandatory = $true, Position = 1)]
-        [hashtable]$Context
+        [hashtable]$Context,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$LineStatementPrefix,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$LineCommentPrefix
     )
     
     try {
         Write-Verbose "Creating template engine instance"
         $engine = [TemplateEngine]::new()
+        
+        # Set line statement and comment prefixes if provided
+        if ($PSBoundParameters.ContainsKey('LineStatementPrefix')) {
+            [Lexer]::LINE_STATEMENT_PREFIX = $LineStatementPrefix
+            Write-Verbose "Line statement prefix set to: $LineStatementPrefix"
+        }
+        
+        if ($PSBoundParameters.ContainsKey('LineCommentPrefix')) {
+            [Lexer]::LINE_COMMENT_PREFIX = $LineCommentPrefix
+            Write-Verbose "Line comment prefix set to: $LineCommentPrefix"
+        }
         
         if ($PSCmdlet.ParameterSetName -eq 'Path') {
             Write-Verbose "Using Path parameter set"
@@ -3019,6 +5010,16 @@ function Invoke-AltarTemplate {
     }
     catch {
         Write-Error "Error processing template: $_"
+    }
+    finally {
+        # Reset prefixes after rendering to avoid affecting subsequent renders
+        if ($PSBoundParameters.ContainsKey('LineStatementPrefix')) {
+            [Lexer]::LINE_STATEMENT_PREFIX = $null
+        }
+        
+        if ($PSBoundParameters.ContainsKey('LineCommentPrefix')) {
+            [Lexer]::LINE_COMMENT_PREFIX = $null
+        }
     }
 }
 

@@ -1,0 +1,108 @@
+Test: divisibleby
+{% set num = 15 %}
+{% if num is divisibleby(3) %}
+{{ num }} is divisible by 3
+{% endif %}
+{% if num is divisibleby(5) %}
+{{ num }} is divisible by 5
+{% endif %}
+{% if num is not divisibleby(7) %}
+{{ num }} is NOT divisible by 7
+{% endif %}
+
+Test: iterable
+{% set items = [1, 2, 3] %}
+{% set text = "hello" %}
+{% set number = 42 %}
+{% if items is iterable %}
+items is iterable
+{% endif %}
+{% if text is not iterable %}
+text is NOT iterable (strings are not considered iterable in this context)
+{% endif %}
+{% if number is not iterable %}
+number is NOT iterable
+{% endif %}
+
+Test: number
+{% set value1 = 42 %}
+{% set value2 = "hello" %}
+{% if value1 is number %}
+{{ value1 }} is a number
+{% endif %}
+{% if value2 is not number %}
+{{ value2 }} is NOT a number
+{% endif %}
+
+Test: string
+{% set value1 = "hello" %}
+{% set value2 = 42 %}
+{% if value1 is string %}
+{{ value1 }} is a string
+{% endif %}
+{% if value2 is not string %}
+{{ value2 }} is NOT a string
+{% endif %}
+
+Test: mapping
+{% set dict = {'key': 'value'} %}
+{% set arr = [1, 2, 3] %}
+{% if dict is mapping %}
+dict is a mapping
+{% endif %}
+{% if arr is not mapping %}
+arr is NOT a mapping
+{% endif %}
+
+Test: sequence
+{% set arr = [1, 2, 3] %}
+{% set text = "hello" %}
+{% set num = 42 %}
+{% if arr is sequence %}
+arr is a sequence
+{% endif %}
+{% if text is sequence %}
+text is a sequence
+{% endif %}
+{% if num is not sequence %}
+num is NOT a sequence
+{% endif %}
+
+Test: lower
+{% set text1 = "hello" %}
+{% set text2 = "HELLO" %}
+{% set text3 = "Hello" %}
+{% if text1 is lower %}
+{{ text1 }} is lowercase
+{% endif %}
+{% if text2 is not lower %}
+{{ text2 }} is NOT lowercase
+{% endif %}
+{% if text3 is not lower %}
+{{ text3 }} is NOT lowercase
+{% endif %}
+
+Test: upper
+{% set text1 = "HELLO" %}
+{% set text2 = "hello" %}
+{% set text3 = "Hello" %}
+{% if text1 is upper %}
+{{ text1 }} is uppercase
+{% endif %}
+{% if text2 is not upper %}
+{{ text2 }} is NOT uppercase
+{% endif %}
+{% if text3 is not upper %}
+{{ text3 }} is NOT uppercase
+{% endif %}
+
+Test: sameas
+{% set obj1 = [1, 2, 3] %}
+{% set obj2 = obj1 %}
+{% set obj3 = [1, 2, 3] %}
+{% if obj1 is sameas(obj2) %}
+obj1 and obj2 are the same object
+{% endif %}
+{% if obj1 is not sameas(obj3) %}
+obj1 and obj3 are NOT the same object (different references)
+{% endif %}

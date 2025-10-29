@@ -1,0 +1,15 @@
+{# Example: Basic Line Statements Usage #}
+{# This template demonstrates the use of line statements with # prefix #}
+
+<h1>Product List</h1>
+<ul>
+# for product in products
+    <li>{{ product.name }} - ${{ product.price }}</li>
+# endfor
+</ul>
+
+# if show_footer
+<footer>
+    <p>Total products: {{ products | length }}</p>
+</footer>
+# endif

@@ -1,0 +1,43 @@
+{% macro render_card_grid(items, columns=3) -%}
+    <div class="card-grid" style="grid-template-columns: repeat({{ columns }}, 1fr);">
+    {%- for item in items %}
+        <div class="card">
+            {{ caller(item) }}
+        </div>
+    {%- endfor %}
+    </div>
+{%- endmacro %}
+
+{% macro render_accordion(sections) -%}
+    <div class="accordion">
+    {%- for section in sections %}
+        <div class="accordion-item">
+            <div class="accordion-header">{{ section.title }}</div>
+            <div class="accordion-content">
+                {{ caller(section) }}
+            </div>
+        </div>
+    {%- endfor %}
+    </div>
+{%- endmacro %}
+
+<h2>Product Cards</h2>
+{% call(product) render_card_grid(products, 4) %}
+    <img src="{{ product.image }}" alt="{{ product.name }}">
+    <h3>{{ product.name }}</h3>
+    <p class="price">${{ product.price }}</p>
+    <p class="description">{{ product.description | truncate(100) }}</p>
+    <button>Add to Cart</button>
+{% endcall %}
+
+<h2>FAQ Accordion</h2>
+{% call(faq) render_accordion(faqs) %}
+    <p>{{ faq.answer }}</p>
+    {% if faq.links %}
+        <ul>
+        {%- for link in faq.links %}
+            <li><a href="{{ link.url }}">{{ link.text }}</a></li>
+        {%- endfor %}
+        </ul>
+    {% endif %}
+{% endcall %}

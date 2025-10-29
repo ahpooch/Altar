@@ -1,0 +1,54 @@
+String Filters:
+{{ "hello world" | capitalize }}
+{{ "hello world" | upper }}
+{{ "HELLO WORLD" | lower }}
+{{ "hello world" | title }}
+{{ "  hello  " | trim }}
+{{ "hello world" | replace("world", "universe") }}
+{{ "test" | center(10) }}
+{{ "test" | ljust(10) }}
+{{ "test" | rjust(10) }}
+{{ "hello" | reverse }}
+{{ "line1\nline2" | indent(4) }}
+{{ "<p>Hello</p>" | striptags }}
+{{ "This is a very long text that needs to be truncated" | truncate(20) }}
+{{ "This is a test sentence" | wordcount }}
+{{ "This is a very long line that should be wrapped to multiple lines for better readability" | wordwrap(30) }}
+
+Escape Filters:
+{{ "<script>alert('xss')</script>" | escape }}
+{{ "hello world" | urlencode }}
+
+List Filters:
+{{ [1, 2, 3, 4, 5] | first }}
+{{ [1, 2, 3, 4, 5] | last }}
+{{ ["a", "b", "c"] | join(", ") }}
+{{ [1, 2, 3] | length }}
+{{ [1, 2, 3] | reverse }}
+{{ [3, 1, 4, 1, 5] | sort }}
+{{ [3, 1, 4, 1, 5] | unique }}
+{{ [1, 2, 3, 4, 5, 6] | batch(2) }}
+{{ [1, 2, 3, 4, 5] | slice(2) }}
+{{ [1, 2, 3, 4, 5] | sum }}
+{{ [1, 5, 3, 9, 2] | min }}
+{{ [1, 5, 3, 9, 2] | max }}
+
+Number Filters:
+{{ -5 | abs }}
+{{ "42" | int }}
+{{ "3.14" | float }}
+{{ 3.14159 | round(2) }}
+
+Dictionary Filters:
+{{ {"name": "John", "age": 30} | items }}
+{{ {"name": "John", "age": 30} | attr("name") }}
+
+Conversion Filters:
+{{ "hello" | list }}
+{{ {"name": "John", "age": 30} | tojson }}
+
+Other Filters:
+{{ none | default("N/A") }}
+{{ 1024 | filesizeformat }}
+{{ 1048576 | filesizeformat(true) }}
+{{ {"class": "btn", "id": "submit"} | xmlattr }}

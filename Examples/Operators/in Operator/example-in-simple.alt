@@ -1,0 +1,25 @@
+Simple 'in' operator examples:
+
+{% set fruits = ['apple', 'banana', 'orange'] %}
+
+1. Check if 'apple' is in the list:
+{% if 'apple' in fruits %}
+   ✓ Apple is in the fruits list
+{% else %}
+   ✗ Apple is NOT in the fruits list
+{% endif %}
+
+2. Check if 'grape' is in the list:
+{% if 'grape' in fruits %}
+   ✓ Grape is in the fruits list
+{% else %}
+   ✗ Grape is NOT in the fruits list
+{% endif %}
+
+3. Using 'in' with variables:
+{% set search_item = 'banana' %}
+{% if search_item in fruits %}
+   ✓ {{ search_item }} found in the list
+{% else %}
+   ✗ {{ search_item }} not found in the list
+{% endif %}

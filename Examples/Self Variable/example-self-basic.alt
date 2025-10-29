@@ -1,0 +1,17 @@
+{# Basic self.blockname() usage example #}
+{# Demonstrates calling blocks as functions from anywhere in the template #}
+
+{% block title %}Welcome to Altar{% endblock %}
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ self.title() }}</title>
+</head>
+<body>
+    <h1>{{ self.title() }}</h1>
+    
+    <p>This page demonstrates the self variable feature.</p>
+    <p>The title "{{ self.title() }}" is defined once but used multiple times.</p>
+</body>
+</html>

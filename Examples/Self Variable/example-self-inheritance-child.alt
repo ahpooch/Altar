@@ -1,0 +1,21 @@
+{# Child template that extends the base #}
+{# Shows how self.blockname() works with overridden blocks #}
+
+{% extends "example-self-inheritance-base.alt" %}
+
+{% block page_title %}About Us{% endblock %}
+
+{% block content %}
+<h2>About {{ self.page_title() }}</h2>
+
+<p>This page demonstrates how self.blockname() works with template inheritance.</p>
+
+<p>Notice how:</p>
+<ul>
+    <li>The page title "{{ self.page_title() }}" is defined in the child template</li>
+    <li>All calls to {{ "{{ self.page_title() }}" }} throughout the page (including in the base template) use the child's version</li>
+    <li>The footer also displays "{{ self.page_title() }}" from the child template</li>
+</ul>
+
+<p>This makes it easy to reuse block content without repeating yourself!</p>
+{% endblock %}

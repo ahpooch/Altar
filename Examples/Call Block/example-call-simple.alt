@@ -1,0 +1,22 @@
+{% macro render_dialog(title, class='dialog') -%}
+    <div class="{{ class }}">
+        <h2>{{ title }}</h2>
+        <div class="contents">
+            {{ caller() }}
+        </div>
+    </div>
+{%- endmacro %}
+
+{% call render_dialog('Welcome') %}
+    <p>This is a simple dialog box created using the call block.</p>
+    <p>The content inside the call block is passed to the macro via caller().</p>
+{% endcall %}
+
+{% call render_dialog('Information', class='info-box') %}
+    <p>You can customize the dialog by passing parameters to the macro.</p>
+    <ul>
+        <li>Custom title</li>
+        <li>Custom CSS class</li>
+        <li>Any HTML content</li>
+    </ul>
+{% endcall %}

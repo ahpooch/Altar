@@ -1,0 +1,31 @@
+{% macro render_table(items, headers) -%}
+    <table class="data-table">
+        <thead>
+            <tr>
+            {%- for header in headers %}
+                <th>{{ header }}</th>
+            {%- endfor %}
+            </tr>
+        </thead>
+        <tbody>
+        {%- for item in items %}
+            <tr>
+                {{ caller(item) }}
+            </tr>
+        {%- endfor %}
+        </tbody>
+    </table>
+{%- endmacro %}
+
+{% call(product) render_table(products, ['Name', 'Price', 'Stock', 'Status']) %}
+    <td>{{ product.name }}</td>
+    <td>${{ product.price }}</td>
+    <td>{{ product.stock }}</td>
+    <td>
+        {% if product.stock > 0 %}
+            <span class="in-stock">Available</span>
+        {% else %}
+            <span class="out-of-stock">Out of Stock</span>
+        {% endif %}
+    </td>
+{% endcall %}

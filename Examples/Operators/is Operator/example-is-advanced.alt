@@ -1,0 +1,48 @@
+Advanced 'is' operator examples:
+
+{% set items = [1, 2, 3, 4, 5, 6] %}
+
+1. Using 'is' with logical operators:
+{% set var1 = 'hello' %}
+{% set var2 = 'world' %}
+{% if var1 is defined and var2 is defined %}
+   ✓ Both var1 and var2 are defined
+{% endif %}
+
+2. Filtering even numbers in a loop:
+Even numbers:
+{% for num in items -%}
+{% if num is even %}{{ num }} {% endif -%}
+{% endfor %}
+
+3. Filtering odd numbers in a loop:
+Odd numbers:
+{% for num in items -%}
+{% if num is odd %}{{ num }} {% endif -%}
+{% endfor %}
+
+4. Using 'is' with ternary operator:
+{% set user_name = 'Alice' %}
+{% set status = 'Active' if user_name is defined else 'Inactive' %}
+User status: {{ status }}
+
+5. Combining 'is' with 'in' operator:
+{% set value = 4 %}
+{% if value in items and value is even %}
+   ✓ {{ value }} is in the list AND is even
+{% endif %}
+
+6. Negating tests:
+{% set test_var = null %}
+{% if test_var is not none %}
+   Value is not none
+{% else %}
+   ✓ Value is none (negation works)
+{% endif %}
+
+7. Complex condition with multiple tests:
+{% for num in items -%}
+{% if num is even and num in [2, 4, 6] %}
+   {{ num }} is even and in the special list
+{% endif -%}
+{% endfor %}

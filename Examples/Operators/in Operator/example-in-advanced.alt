@@ -1,0 +1,38 @@
+Advanced 'in' operator examples:
+
+{% set numbers = [1, 2, 3, 4, 5] %}
+{% set colors = ['red', 'green', 'blue'] %}
+
+1. Using 'in' with numbers:
+{% if 3 in numbers %}
+   ✓ Number 3 is in the list
+{% endif %}
+
+2. Combining 'in' with 'and' operator:
+{% if 'red' in colors and 'blue' in colors %}
+   ✓ Both red and blue are in the colors list
+{% endif %}
+
+3. Combining 'in' with 'or' operator:
+{% if 'yellow' in colors or 'green' in colors %}
+   ✓ At least one of yellow or green is in the list
+{% endif %}
+
+4. Using 'in' in a loop:
+{% for item in ['apple', 'banana', 'cherry'] %}
+   {% if item in fruits %}
+   - {{ item }}: Already in fruits list
+   {% else %}
+   - {{ item }}: Not in fruits list
+   {% endif %}
+{% endfor %}
+
+5. Negating 'in' with comparison:
+{% set item = 'grape' %}
+{% if (item in fruits) == false %}
+   ✓ {{ item }} is NOT in the fruits list
+{% endif %}
+
+6. Using 'in' with ternary operator:
+{% set status = 'active' in ['active', 'pending'] if true else 'inactive' %}
+Status check result: {{ status }}

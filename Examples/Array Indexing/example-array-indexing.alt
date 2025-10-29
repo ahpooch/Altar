@@ -1,0 +1,26 @@
+Array Indexing Examples
+=======================
+
+1. Basic Array Indexing:
+   First element: {{ fruits[0] }}
+   Second element: {{ fruits[1] }}
+   Third element: {{ fruits[2] }}
+
+2. Dictionary Items Filter with Indexing:
+{% for pair in user | items %}
+   {{ pair[0] }}: {{ pair[1] }}
+{% endfor %}
+
+3. Nested Array Access:
+   Matrix[0][0] = {{ matrix[0][0] }}
+   Matrix[0][1] = {{ matrix[0][1] }}
+   Matrix[1][0] = {{ matrix[1][0] }}
+   Matrix[1][1] = {{ matrix[1][1] }}
+
+4. Dynamic Index:
+   Element at index {{ idx }}: {{ colors[idx] }}
+
+5. Combining with Filters:
+{% for item in products | items %}
+   Product: {{ item[0] | upper }} - Price: ${{ item[1] }}
+{% endfor %}

@@ -1,0 +1,17 @@
+{# Example: Line Comments Usage #}
+{# This template demonstrates the use of line comments with ## prefix #}
+
+## This is a line comment - it will be ignored
+<h1>User Profile</h1>
+
+## The following section displays user information
+# if user
+    <div class="profile">
+        <h2>{{ user.name }}</h2>  ## Display user name
+        <p>Email: {{ user.email }}</p>  ## Display email
+    </div>
+# else
+    <p>No user logged in</p>
+# endif
+
+## End of template

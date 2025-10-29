@@ -1,0 +1,3 @@
+{% for item in items -%}
+{{ loop.index }}. {{ item }} (index0: {{ loop.index0 }}, first: {{ loop.first }}, last: {{ loop.last }}, length: {{ loop.length }})
+{% endfor -%}
