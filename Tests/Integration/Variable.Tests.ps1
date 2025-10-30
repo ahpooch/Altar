@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Variable.Tests.ps1 -Output Detailed
+# Integration tests for Variable block functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Variable Block Integration Tests' -Tag 'Integration' {

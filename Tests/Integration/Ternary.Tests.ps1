@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Ternary.Tests.ps1 -Output Detailed
+# Integration tests for the Ternary Operator functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Ternary Operator Integration Tests' -Tag 'Integration' {

@@ -1,7 +1,8 @@
-# Integration tests for the 'in' operator in Altar template engine
+# Integration tests for the 'in' operator
 
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe "In Operator Tests" {

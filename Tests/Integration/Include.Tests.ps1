@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Include.Tests.ps1 -Output Detailed
+# Integration tests Include block functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Include Statement Integration Tests' -Tag 'Integration' {

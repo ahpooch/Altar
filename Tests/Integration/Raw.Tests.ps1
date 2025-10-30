@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Raw.Tests.ps1 -Output Detailed
+# Integration tests for Raw block functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Raw Block Integration Tests' -Tag 'Integration' {

@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Extends.Tests.ps1 -Output Detailed
+# Integration tests for Extends Statement block functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Extends Statement Integration Tests' -Tag 'Integration' {

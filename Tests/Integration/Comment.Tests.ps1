@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\Comment.Tests.ps1 -Output Detailed
+# Integration tests for Comment block functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'Comment Block Integration Tests' -Tag 'Integration' {

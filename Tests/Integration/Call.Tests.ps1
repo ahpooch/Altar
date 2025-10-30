@@ -1,5 +1,6 @@
 # Integration tests for Call block functionality
 BeforeAll {
+    # Load the Altar template engine
     . "$PSScriptRoot\..\..\Altar.ps1"
 }
 

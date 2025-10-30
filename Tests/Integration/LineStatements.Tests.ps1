@@ -1,6 +1,7 @@
 # Integration tests for Line Statements functionality
 
 BeforeAll {
+    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
 }
 

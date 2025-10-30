@@ -2,6 +2,7 @@
 # Tests that foo['bar'] works identically to foo.bar
 
 BeforeAll {
+    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
 }
 

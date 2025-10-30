@@ -1,5 +1,4 @@
-# Integration tests for 'is' operator tests in Altar
-# Tests all Jinja2-compatible test expressions
+# Integration tests for 'is' operator tests
 
 BeforeAll {
     # Load the Altar template engine

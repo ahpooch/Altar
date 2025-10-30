@@ -1,7 +1,8 @@
-# Integration tests for the 'is' operator in Altar template engine
+# Integration tests for the 'is' operator
 
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe "Is Operator Tests" {

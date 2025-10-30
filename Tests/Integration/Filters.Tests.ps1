@@ -1,4 +1,4 @@
-# Integration tests for Jinja2 filters in Altar template engine
+# Integration tests for filters functionality
 
 BeforeAll {
     # Load the Altar template engine

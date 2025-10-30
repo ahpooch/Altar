@@ -1,6 +1,7 @@
-# Invoke-Pester -Path .\Tests\Integration\If.Tests.ps1 -Output Detailed
+# Integration tests for If block functionality
 BeforeAll {
-    . .\Altar.ps1
+  # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe 'If Statement Integration Tests' -Tag 'Integration' {

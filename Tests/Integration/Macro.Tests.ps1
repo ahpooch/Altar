@@ -1,6 +1,7 @@
-# Macro Tests for Altar Template Engine
+# Macro Tests for Macro functionality
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe "Macro Tests" {

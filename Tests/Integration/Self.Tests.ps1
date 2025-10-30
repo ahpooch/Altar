@@ -1,8 +1,8 @@
-# Integration tests for self.blockname() functionality (Jinja2 compatibility)
-# Tests the ability to call blocks as functions from anywhere in the template
+# Integration tests for self.blockname() functionality
 
 BeforeAll {
-    . .\Altar.ps1
+    # Load the Altar template engine
+    . "$PSScriptRoot/../../Altar.ps1"
 }
 
 Describe "Self Variable - Basic Functionality" {
