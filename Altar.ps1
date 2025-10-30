@@ -6,15 +6,6 @@ enum UndefinedBehavior {
     Chainable        # Allow chaining on undefined variables without errors
 }
 
-# Class representing template environment settings (Jinja2 compatibility)
-class TemplateEnvironment {
-    [UndefinedBehavior]$UndefinedBehavior = [UndefinedBehavior]::Default
-    
-    TemplateEnvironment() {
-        $this.UndefinedBehavior = [UndefinedBehavior]::Default
-    }
-}
-
 # Enum defining all possible token types used in the template lexer
 # These token types represent the different elements that can be found in a template
 enum TokenType {
@@ -36,6 +27,15 @@ enum TokenType {
     DOT             # Dot character . used for property access
     RAW_CONTENT     # Raw block content (preserved as-is)
     EOF             # End of file marker
+}
+
+# Class representing template environment settings (Jinja2 compatibility)
+class TemplateEnvironment {
+    [UndefinedBehavior]$UndefinedBehavior = [UndefinedBehavior]::Default
+    
+    TemplateEnvironment() {
+        $this.UndefinedBehavior = [UndefinedBehavior]::Default
+    }
 }
 
 # Class representing a token in the template language
@@ -1852,65 +1852,51 @@ class Parser {
     }
     
     [IfNode]ParseIf([Token]$startToken) {
-        Write-Host "ParseIf: Starting to parse if block"
+        # Starting to parse if block
         $condition = $this.ParseExpression()
         $this.Expect([TokenType]::BLOCK_END)
-        
-        Write-Host "ParseIf: Created IfNode with condition"
         $ifNode = [IfNode]::new($condition, $startToken.Line, $startToken.Column, $startToken.Filename)
         
         # Parse then branch
-        Write-Host "ParseIf: Starting to parse then branch"
         while ($true) {
             # Check for else/elif/endif tag
             if (($this.Position + 1) -lt $this.Tokens.Count) {
                 $currentToken = $this.Current()
-                $nextToken = $this.PeekOffset(1)
-                
-                Write-Host "ParseIf: Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
-                Write-Host "ParseIf: Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
+                $nextToken = $this.PeekOffset(1)  
                 
                 # Check if we've reached the else/elif/endif tag
                 if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                     $nextToken.Type -eq [TokenType]::KEYWORD -and 
                     $nextToken.Value -in @('else', 'elif', 'endif')) {
-                    Write-Host "ParseIf: Found else/elif/endif tag: $($nextToken.Value)"
                     
                     # Handle the tag based on its type
                     if ($nextToken.Value -eq 'else') {
                         # Handle else tag
-                        Write-Host "ParseIf: Processing else tag"
                         $this.Consume() # BLOCK_START
                         $this.Consume() # else
                         $this.Expect([TokenType]::BLOCK_END)
-                        Write-Host "ParseIf: Consumed else tag"
                         
                         # Parse else branch
-                        Write-Host "ParseIf: Starting to parse else branch"
                         while ($true) {
                             # Check for endif or elif tag (elif should not appear in else branch, but we check to prevent infinite loop)
                             if (($this.Position + 1) -lt $this.Tokens.Count) {
                                 $currentToken = $this.Current()
                                 $nextToken = $this.PeekOffset(1)
                                 
-                                Write-Host "ParseIf: (else branch) Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
-                                Write-Host "ParseIf: (else branch) Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
-                                
                                 # Check if we've reached the endif or elif tag
                                 if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                                     $nextToken.Type -eq [TokenType]::KEYWORD -and 
                                     $nextToken.Value -in @('endif', 'elif')) {
-                                    Write-Host "ParseIf: (else branch) Found $($nextToken.Value) tag"
                                     break
                                 }
                                 
                                 # Check if we've reached EOF
                                 if ($currentToken.Type -eq [TokenType]::EOF) {
-                                    Write-Host "ParseIf: (else branch) Reached EOF without finding endif"
+                                    # Reached EOF without finding endif
                                     throw "Unexpected end of template. Expected: endif"
                                 }
                             } else {
-                                Write-Host "ParseIf: (else branch) Reached end of tokens without finding endif"
+                                # Reached end of tokens without finding endif
                                 throw "Unexpected end of template. Expected: endif"
                             }
                             
@@ -1921,16 +1907,13 @@ class Parser {
                         }
                         
                         # Consume endif after parsing else branch
-                        Write-Host "ParseIf: Consuming endif tag after else branch"
                         $this.Consume() # BLOCK_START
                         $this.Consume() # endif
                         $this.Expect([TokenType]::BLOCK_END)
-                        Write-Host "ParseIf: Consumed endif tag after else branch"
                         return $ifNode
                     }
                     elseif ($nextToken.Value -eq 'elif') {
                         # Handle elif tag
-                        Write-Host "ParseIf: Processing elif tag"
                         $this.Consume() # BLOCK_START
                         $this.Consume() # elif
                         $ifNode.ElifBranch = $this.ParseElif($startToken)
@@ -1938,11 +1921,9 @@ class Parser {
                     }
                     elseif ($nextToken.Value -eq 'endif') {
                         # Handle endif tag
-                        Write-Host "ParseIf: Processing endif tag"
                         $this.Consume() # BLOCK_START
                         $this.Consume() # endif
                         $this.Expect([TokenType]::BLOCK_END)
-                        Write-Host "ParseIf: Consumed endif tag"
                         return $ifNode
                     }
                     
@@ -1964,50 +1945,40 @@ class Parser {
         }
         
         # If we get here, something went wrong
-        Write-Host "ParseIf: ERROR - Unexpected end of if block"
         throw "Unexpected end of if block"
     }
     
     [IfNode]ParseElif([Token]$startToken) {
-        Write-Host "ParseElif: Starting to parse elif block"
         $condition = $this.ParseExpression()
         $this.Expect([TokenType]::BLOCK_END)
-        
-        Write-Host "ParseElif: Created IfNode with condition"
         $elifNode = [IfNode]::new($condition, $startToken.Line, $startToken.Column, $startToken.Filename)
         
         # Parse elif branch
-        Write-Host "ParseElif: Starting to parse elif branch"
         while ($true) {
             # Check for else/elif/endif tag
             if (($this.Position + 1) -lt $this.Tokens.Count) {
                 $currentToken = $this.Current()
                 $nextToken = $this.PeekOffset(1)
                 
-                Write-Host "ParseElif: Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
-                Write-Host "ParseElif: Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
-                
                 # Check if we've reached the else/elif/endif tag
                 if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                     $nextToken.Type -eq [TokenType]::KEYWORD -and 
                     $nextToken.Value -in @('else', 'elif', 'endif')) {
-                    Write-Host "ParseElif: Found else/elif/endif tag: $($nextToken.Value)"
                     break
                 }
                 
                 # Check if we've reached EOF
                 if ($currentToken.Type -eq [TokenType]::EOF) {
-                    Write-Host "ParseElif: Reached EOF without finding else/elif/endif"
+                    # Reached EOF without finding else/elif/endif"
                     throw "Unexpected end of template. Expected: endif"
                 }
             } else {
-                Write-Host "ParseElif: Reached end of tokens without finding else/elif/endif"
+                # Reached end of tokens without finding else/elif/endif"
                 throw "Unexpected end of template. Expected: endif"
             }
             
             $statement = $this.ParseStatement()
             if ($null -ne $statement) {
-                Write-Host "ParseElif: Adding statement to ThenBranch"
                 $elifNode.ThenBranch += $statement
             }
         }
@@ -2017,76 +1988,59 @@ class Parser {
         $nextToken = $this.PeekOffset(1)
         
         if ($currentToken.Type -eq [TokenType]::BLOCK_START -and $nextToken.Type -eq [TokenType]::KEYWORD -and $nextToken.Value -eq 'elif') {
-            Write-Host "ParseElif: Found nested elif tag"
+            # Found nested elif tag
             $this.Consume() # BLOCK_START
             $this.Consume() # elif
             $elifNode.ElifBranch = $this.ParseElif($startToken)
             return $elifNode
         } elseif ($currentToken.Type -eq [TokenType]::BLOCK_START -and $nextToken.Type -eq [TokenType]::KEYWORD -and $nextToken.Value -eq 'else') {
-            Write-Host "ParseElif: Found else tag"
+            # Found else tag
             $this.Consume() # BLOCK_START
             $this.Consume() # else
             $this.Expect([TokenType]::BLOCK_END)
-            Write-Host "ParseElif: Consumed else tag"
             
             # Parse else branch
-            Write-Host "ParseElif: Starting to parse else branch"
             while ($true) {
                 # Check for endif tag
                 if (($this.Position + 1) -lt $this.Tokens.Count) {
                     $currentToken = $this.Current()
                     $nextToken = $this.PeekOffset(1)
                     
-                    Write-Host "ParseElif: (else branch) Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
-                    Write-Host "ParseElif: (else branch) Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
-                    
                     # Check if we've reached the endif tag
                     if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                         $nextToken.Type -eq [TokenType]::KEYWORD -and 
                         $nextToken.Value -eq 'endif') {
-                        Write-Host "ParseElif: (else branch) Found endif tag"
                         break
                     }
                     
                     # Check if we've reached EOF
                     if ($currentToken.Type -eq [TokenType]::EOF) {
-                        Write-Host "ParseElif: (else branch) Reached EOF without finding endif"
+                        # Reached EOF without finding endif"
                         throw "Unexpected end of template. Expected: endif"
                     }
                 } else {
-                    Write-Host "ParseElif: (else branch) Reached end of tokens without finding endif"
+                    # Reached end of tokens without finding endif"
                     throw "Unexpected end of template. Expected: endif"
                 }
                 
                 $statement = $this.ParseStatement()
                 if ($null -ne $statement) {
-                    Write-Host "ParseElif: (else branch) Adding statement to ElseBranch"
                     $elifNode.ElseBranch += $statement
                 }
             }
             
             # Consume endif after parsing else branch
-            Write-Host "ParseElif: Consuming endif tag after else branch"
             $this.Consume() # BLOCK_START
             $this.Consume() # endif
             $this.Expect([TokenType]::BLOCK_END)
-            Write-Host "ParseElif: Consumed endif tag after else branch"
             return $elifNode
         } elseif ($currentToken.Type -eq [TokenType]::BLOCK_START -and $nextToken.Type -eq [TokenType]::KEYWORD -and $nextToken.Value -eq 'endif') {
-            Write-Host "ParseElif: Found endif tag"
+            # Found endif tag"
             $this.Consume() # BLOCK_START
             $this.Consume() # endif
             $this.Expect([TokenType]::BLOCK_END)
-            Write-Host "ParseElif: Consumed endif tag"
         } else {
-            Write-Host "ParseElif: ERROR - Expected endif tag but found something else"
-            Write-Host "ParseElif: Current position: $($this.Position), Tokens count: $($this.Tokens.Count)"
-            if ($this.Position -lt $this.Tokens.Count) {
-                Write-Host "ParseElif: Current token: $($this.Current().Type), Value: '$($this.Current().Value)'"
-                if (($this.Position + 1) -lt $this.Tokens.Count) {
-                    Write-Host "ParseElif: Next token: $($this.PeekOffset(1).Type), Value: '$($this.PeekOffset(1).Value)'"
-                }
-            }
+            # Expected endif tag but found something else
             throw "Expected endif tag"
         }
         
@@ -2094,68 +2048,42 @@ class Parser {
     }
     
     [ForNode]ParseFor([Token]$startToken) {
-        Write-Verbose "ParseFor called"
         $variable = $this.Expect([TokenType]::IDENTIFIER).Value
-        Write-Verbose "Variable: $variable"
-        
         $this.Expect([TokenType]::KEYWORD, "in")
-        Write-Verbose "Found 'in' keyword"
-        
         $iterable = $this.ParseExpression()
-        Write-Verbose "Parsed iterable expression"
-        
         $this.Expect([TokenType]::BLOCK_END)
-        Write-Verbose "Found block end"
-        
         $forNode = [ForNode]::new($variable, $iterable, $startToken.Line, $startToken.Column, $startToken.Filename)
-        Write-Verbose "Created ForNode"
         
         # Parse for body
-        Write-Verbose "Starting to parse for body"
-        
         while ($true) {
-            Write-Verbose "In while loop, position: $($this.Position)"
-            
             # Check for else/endfor tag
             if (($this.Position + 1) -lt $this.Tokens.Count) {
                 $currentToken = $this.Current()
                 $nextToken = $this.PeekOffset(1)
                 
-                Write-Verbose "Current token: $($currentToken.Type), Value: '$($currentToken.Value)'"
-                if ($null -ne $nextToken) {
-                    Write-Verbose "Next token: $($nextToken.Type), Value: '$($nextToken.Value)'"
-                } else {
-                    Write-Verbose "Next token: null"
-                }
-                
                 # Check if we've reached the else or endfor tag
                 if ($currentToken.Type -eq [TokenType]::BLOCK_START -and 
                     $nextToken.Type -eq [TokenType]::KEYWORD -and 
                     $nextToken.Value -in @('else', 'endfor')) {
-                    Write-Verbose "Found else/endfor tag: $($nextToken.Value)"
                     break
                 }
                 
                 # Check if we've reached EOF
                 if ($currentToken.Type -eq [TokenType]::EOF) {
-                    Write-Verbose "Reached EOF without finding endfor"
+                    # Reached EOF without finding endfor
                     throw "Unexpected end of template. Expected: endfor"
                 }
             } else {
-                Write-Verbose "Reached end of tokens without finding endfor"
+                # Reached end of tokens without finding endfor
                 throw "Unexpected end of template. Expected: endfor"
             }
             
             $statement = $this.ParseStatement()
             if ($null -ne $statement) {
-                Write-Verbose "Parsed statement: $($statement.GetType().Name)"
                 $forNode.Body += $statement
-                Write-Verbose "Added statement to body"
             }
         }
-        
-        Write-Verbose "Exited while loop"
-        
+                
         # Check for {% else %} block
         $currentToken = $this.Current()
         $nextToken = $this.PeekOffset(1)
@@ -2164,7 +2092,7 @@ class Parser {
             $nextToken.Type -eq [TokenType]::KEYWORD -and 
             $nextToken.Value -eq 'else') {
             
-            Write-Verbose "Found else tag, parsing else branch"
+            # Found else tag, parsing else branch
             $this.Consume() # BLOCK_START
             $this.Consume() # else
             $this.Expect([TokenType]::BLOCK_END)
@@ -2182,7 +2110,6 @@ class Parser {
                     $nextToken = $this.PeekOffset(1)
                     if ($null -ne $nextToken -and $nextToken.Type -eq [TokenType]::KEYWORD -and 
                         $nextToken.Value -eq 'endfor') {
-                        Write-Verbose "Found endfor tag in else branch"
                         break
                     }
                 }
@@ -4335,24 +4262,20 @@ class TemplateEngine {
     [scriptblock]Compile([string]$template, [string]$filename) {
         try {
             # Step 1: Tokenization - Convert template text into tokens
-            Write-Host "Tokenizing template..."
             $lexer = [Lexer]::new()
             $tokens = $lexer.Tokenize($template, $filename)
             
             # Step 2: Parsing - Convert tokens into an Abstract Syntax Tree (AST)
-            Write-Host "Parsing tokens..."
             $parser = [Parser]::new($tokens, $filename)
             $parser.SourceText = $template  # Store the original template text
             $ast = $parser.ParseTemplate()
             
             # Step 3: Compilation - Convert AST into PowerShell code
-            Write-Host "Compiling AST to PowerShell code..."
             $compiler = [PowershellCompiler]::new()
             $compiler.UndefinedBehavior = $this.Environment.UndefinedBehavior
             $powershellCode = $compiler.Compile($ast)
             
             # Step 4: Create an executable script block from the PowerShell code
-            Write-Host "Generating scriptblock..."
             return [scriptblock]::Create($powershellCode)
             
         } catch {
@@ -5246,6 +5169,3 @@ function Invoke-AltarTemplate {
         }
     }
 }
-
-# When dot-sourcing the file, the function will be available in the current scope
-# No need to use Export-ModuleMember
