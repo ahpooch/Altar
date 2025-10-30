@@ -3278,6 +3278,18 @@ class PowershellCompiler {
         elseif ($node.Expression -is [PropertyAccessNode]) {
             $this.VisitOutputProperty($node, $expression)
         }
+        elseif ($node.Expression -is [IndexAccessNode]) {
+            # Check if this is bracket notation with string literal (foo['bar'])
+            $indexNode = [IndexAccessNode]$node.Expression
+            if ($indexNode.Index -is [LiteralNode] -and ([LiteralNode]$indexNode.Index).Value -is [string]) {
+                # Treat as property access for undefined behavior
+                $this.VisitOutputIndexAsProperty($indexNode, $expression)
+            }
+            else {
+                # Regular array indexing
+                $this.VisitOutputGeneric($expression)
+            }
+        }
         else {
             # For other expressions (literals, filters, etc.), just output if not null
             $this.VisitOutputGeneric($expression)
@@ -3479,6 +3491,118 @@ class PowershellCompiler {
         }
         else {
             return "expression.$($node.Property)"
+        }
+    }
+    
+    # Helper method to get the string representation of an index access expression (for bracket notation)
+    [string]GetIndexAccessString([IndexAccessNode]$node) {
+        $property = ([LiteralNode]$node.Index).Value
+        
+        if ($node.Object -is [VariableNode]) {
+            $varName = ([VariableNode]$node.Object).Name
+            return "$varName.$property"
+        }
+        elseif ($node.Object -is [PropertyAccessNode]) {
+            $parentExpr = $this.GetPropertyAccessString([PropertyAccessNode]$node.Object)
+            return "$parentExpr.$property"
+        }
+        elseif ($node.Object -is [IndexAccessNode]) {
+            $parentExpr = $this.GetIndexAccessString([IndexAccessNode]$node.Object)
+            return "$parentExpr.$property"
+        }
+        else {
+            return "expression.$property"
+        }
+    }
+    
+    # Handle output of index access with string literal (bracket notation) with undefined behavior support
+    [void]VisitOutputIndexAsProperty([IndexAccessNode]$node, [string]$expression) {
+        $fullExpr = $this.GetIndexAccessString($node)
+        
+        # Get the base variable name
+        $baseVar = $node.Object
+        while ($baseVar -is [PropertyAccessNode] -or $baseVar -is [IndexAccessNode]) {
+            if ($baseVar -is [PropertyAccessNode]) {
+                $baseVar = ([PropertyAccessNode]$baseVar).Object
+            } else {
+                $baseVar = ([IndexAccessNode]$baseVar).Object
+            }
+        }
+        
+        if ($baseVar -is [VariableNode]) {
+            $baseVarName = ([VariableNode]$baseVar).Name
+            
+            switch ($this.UndefinedBehavior) {
+                ([UndefinedBehavior]::Default) {
+                    # Jinja2 default: output empty string for undefined base or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+                ([UndefinedBehavior]::Strict) {
+                    # Throw exception for undefined base variable or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (-not `$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("throw `"UndefinedError: '$baseVarName' is undefined`"")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -eq `$__value__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("throw `"UndefinedError: property '$fullExpr' is undefined or null`"")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.OutputValue()
+                }
+                ([UndefinedBehavior]::Debug) {
+                    # Output placeholder for undefined base or undefined property
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("} else {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$output.Append('{{ $fullExpr }}') | Out-Null")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("} else {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$output.Append('{{ $fullExpr }}') | Out-Null")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+                ([UndefinedBehavior]::Chainable) {
+                    # Allow chaining - output empty for undefined/null
+                    $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
+                    $this.AppendLine("if (`$__var_exists__) {")
+                    $this.IndentLevel++
+                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.IndentLevel++
+                    $this.OutputValue()
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                    $this.IndentLevel--
+                    $this.AppendLine("}")
+                }
+            }
+        } else {
+            # Base is not a simple variable, just check for null
+            $this.VisitOutputGeneric($expression)
         }
     }
     
@@ -3844,8 +3968,18 @@ class PowershellCompiler {
             "IndexAccessNode" {
                 $indexAccess = [IndexAccessNode]$node
                 $object = $this.VisitExpression($indexAccess.Object)
-                $index = $this.VisitExpression($indexAccess.Index)
-                return "($object)[$index]"
+                $index = $indexAccess.Index
+                
+                # Jinja2 compatibility: foo['bar'] should work like foo.bar for string literals
+                # If the index is a string literal, treat it as property access
+                if ($index -is [LiteralNode] -and ([LiteralNode]$index).Value -is [string]) {
+                    $property = ([LiteralNode]$index).Value
+                    return "($object).'$property'"
+                }
+                
+                # Otherwise, use normal indexing for numeric indices or expressions
+                $indexExpr = $this.VisitExpression($index)
+                return "($object)[$indexExpr]"
             }
             "BinaryOpNode" {
                 $binaryOp = [BinaryOpNode]$node
