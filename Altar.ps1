@@ -32,9 +32,13 @@ enum TokenType {
 # Class representing template environment settings (Jinja2 compatibility)
 class TemplateEnvironment {
     [UndefinedBehavior]$UndefinedBehavior = [UndefinedBehavior]::Default
+    [bool]$TrimBlocks = $false      # Remove first newline after block end tag
+    [bool]$LstripBlocks = $false    # Remove leading whitespace before block start tag
     
     TemplateEnvironment() {
         $this.UndefinedBehavior = [UndefinedBehavior]::Default
+        $this.TrimBlocks = $false
+        $this.LstripBlocks = $false
     }
 }
 
@@ -154,6 +158,10 @@ class Lexer {
     # Line statement and comment prefixes (Jinja2 compatibility)
     static [string]$LINE_STATEMENT_PREFIX = $null  # e.g., '#' for line statements
     static [string]$LINE_COMMENT_PREFIX = $null    # e.g., '##' for line comments
+    
+    # Whitespace control options (Jinja2 compatibility)
+    static [bool]$TRIM_BLOCKS = $false     # Remove first newline after block end tag
+    static [bool]$LSTRIP_BLOCKS = $false   # Remove leading whitespace before block start tag
     
     # Reserved keywords in the template language
     static [hashtable]$KEYWORDS = @{
@@ -442,12 +450,24 @@ class Lexer {
                 }
                 # Block tag: {% ... %}
                 '%' {
-                    # Check for whitespace trimming syntax: {%- ... %}
+                    # Check for whitespace trimming syntax: {%- ... }} or {%+ ... %}
                     $hasTrimBefore = $false
+                    $hasKeepBefore = $false
+                    
                     if ($state.PeekOffset(2) -eq '-') {
                         $hasTrimBefore = $true
                         # Trim whitespace BEFORE adding the token
                         $this.TrimWhitespaceBefore($tokens)
+                    }
+                    elseif ($state.PeekOffset(2) -eq '+') {
+                        $hasKeepBefore = $true
+                        # + means disable lstrip_blocks for this tag
+                    }
+                    
+                    # Apply lstrip_blocks: remove leading whitespace on the line before block tag
+                    # Only if no manual control (- or +) was specified
+                    if ([Lexer]::LSTRIP_BLOCKS -and -not $hasTrimBefore -and -not $hasKeepBefore) {
+                        $this.LstripBeforeBlock($tokens)
                     }
                     
                     $state.CaptureStart()
@@ -457,7 +477,12 @@ class Lexer {
                     if ($hasTrimBefore) {
                         $state.Consume()  # Consume '-'
                         $tokens.Add([Token]::new([TokenType]::BLOCK_START, [Lexer]::BLOCK_START_TRIM, $state.StartLine, $state.StartColumn, $state.Filename))
-                    } else {
+                    }
+                    elseif ($hasKeepBefore) {
+                        $state.Consume()  # Consume '+'
+                        $tokens.Add([Token]::new([TokenType]::BLOCK_START, [Lexer]::BLOCK_START, $state.StartLine, $state.StartColumn, $state.Filename))
+                    }
+                    else {
                         $tokens.Add([Token]::new([TokenType]::BLOCK_START, [Lexer]::BLOCK_START, $state.StartLine, $state.StartColumn, $state.Filename))
                     }
                     
@@ -563,7 +588,7 @@ class Lexer {
             }
         }
         
-        # Handle block closing tags: %} or -%}
+        # Handle block closing tags: %} or -%} or +%}
         if ($mode -eq "BLOCK") {
             # Check for whitespace trimming syntax: ... -%}
             if ($char -eq '-' -and $state.PeekOffset(1) -eq '%' -and $state.PeekOffset(2) -eq '}') {
@@ -585,6 +610,25 @@ class Lexer {
                 $this.TrimWhitespaceAfter($state)
                 return
             }
+            # Check for + to disable trim_blocks: ... +%}
+            elseif ($char -eq '+' -and $state.PeekOffset(1) -eq '%' -and $state.PeekOffset(2) -eq '}') {
+                $state.CaptureStart()
+                $state.Consume()  # Consume '+'
+                $state.Consume()  # Consume '%'
+                $state.Consume()  # Consume '}'
+                $tokens.Add([Token]::new([TokenType]::BLOCK_END, [Lexer]::BLOCK_END, $state.StartLine, $state.StartColumn, $state.Filename))
+                $state.States.Pop()  # Return to previous state
+                
+                # Check if the last keyword was 'raw' - if so, switch to RAW_BLOCK state
+                if ($tokens.Count -ge 2 -and 
+                    $tokens[$tokens.Count - 2].Type -eq [TokenType]::KEYWORD -and 
+                    $tokens[$tokens.Count - 2].Value -eq 'raw') {
+                    $state.States.Push("RAW_BLOCK")
+                }
+                
+                # + explicitly disables trim_blocks for this tag
+                return
+            }
             # Regular block end: %}
             elseif ($char -eq '%' -and $state.PeekOffset(1) -eq '}') {
                 $state.CaptureStart()
@@ -598,6 +642,18 @@ class Lexer {
                     $tokens[$tokens.Count - 2].Type -eq [TokenType]::KEYWORD -and 
                     $tokens[$tokens.Count - 2].Value -eq 'raw') {
                     $state.States.Push("RAW_BLOCK")
+                }
+                
+                # Apply trim_blocks: remove first newline after block end tag
+                if ([Lexer]::TRIM_BLOCKS) {
+                    # Skip \r if present
+                    if (-not $state.IsEOF() -and $state.Peek() -eq "`r") {
+                        $state.Consume()
+                    }
+                    # Skip \n if present
+                    if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
+                        $state.Consume()
+                    }
                 }
                 
                 return
@@ -862,6 +918,49 @@ class Lexer {
         }
         if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
             $state.Consume()
+        }
+    }
+    
+    # Remove leading whitespace on the line before block tag (lstrip_blocks)
+    # This removes spaces and tabs at the start of the line containing the block tag
+    [void]LstripBeforeBlock([System.Collections.Generic.List[Token]]$tokens) {
+        # If there are no tokens or the last token is not TEXT, nothing to trim
+        if ($tokens.Count -eq 0 -or $tokens[-1].Type -ne [TokenType]::TEXT) {
+            return
+        }
+        
+        # Get the last token, which should be a TEXT token
+        $lastToken = $tokens[-1]
+        $content = $lastToken.Value
+        
+        # Find the last newline in the content
+        $lastNewlineIndex = $content.LastIndexOfAny(@("`n", "`r"))
+        
+        if ($lastNewlineIndex -ge 0) {
+            # There's a newline - trim whitespace after it
+            $beforeNewline = $content.Substring(0, $lastNewlineIndex + 1)
+            $afterNewline = $content.Substring($lastNewlineIndex + 1)
+            
+            # Trim leading spaces and tabs from the part after the newline
+            $trimmedAfter = $afterNewline -replace '^[ \t]+', ''
+            
+            # Combine back together
+            $trimmedContent = $beforeNewline + $trimmedAfter
+        } else {
+            # No newline found - this means the block tag is on the first line
+            # Trim leading whitespace from the entire content
+            $trimmedContent = $content -replace '^[ \t]+', ''
+        }
+        
+        # If the content changed, update the token or remove it if it's empty
+        if ($trimmedContent -ne $content) {
+            if ($trimmedContent -eq '') {
+                # Remove the token if it's now empty
+                $tokens.RemoveAt($tokens.Count - 1)
+            } else {
+                # Replace the token with a new one containing the trimmed content
+                $tokens[-1] = [Token]::new([TokenType]::TEXT, $trimmedContent, $lastToken.Line, $lastToken.Column, $lastToken.Filename)
+            }
         }
     }
     
@@ -4238,11 +4337,12 @@ class TemplateEngine {
     # Render a template with the given context variables
     # This is the main public method for template rendering
     [string]Render([string]$template, [hashtable]$context) {
-        # Create cache key that includes template hash, prefix settings, AND undefined behavior
+        # Create cache key that includes template hash, prefix settings, whitespace control, AND undefined behavior
         # This ensures that changing any of these settings invalidates the cache
         $prefixKey = "$([Lexer]::LINE_STATEMENT_PREFIX)|$([Lexer]::LINE_COMMENT_PREFIX)"
         $undefinedKey = $this.Environment.UndefinedBehavior.ToString()
-        $cacheKey = "$($template.GetHashCode())|$prefixKey|$undefinedKey"
+        $whitespaceKey = "$([Lexer]::TRIM_BLOCKS)|$([Lexer]::LSTRIP_BLOCKS)"
+        $cacheKey = "$($template.GetHashCode())|$prefixKey|$undefinedKey|$whitespaceKey"
         
         # Check if the template is already compiled and cached
         if (-not [TemplateEngine]::Cache.ContainsKey($cacheKey)) {
@@ -5215,6 +5315,17 @@ class AltarFilters {
     }
 }
 
+# Helper function to get environment variables (allows mocking in tests)
+function Get-AltarEnvironmentVariable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+    
+    return [System.Environment]::GetEnvironmentVariable($Name)
+}
+
 # PowerShell Cmdlet for the Altar Template Engine
 # Provides a user-friendly interface to render templates from files or strings
 function Invoke-AltarTemplate {
@@ -5236,12 +5347,44 @@ function Invoke-AltarTemplate {
         [string]$LineStatementPrefix,
         
         [Parameter(Mandatory = $false)]
-        [string]$LineCommentPrefix
+        [string]$LineCommentPrefix,
+        
+        [Parameter(Mandatory = $false)]
+        [bool]$TrimBlocks = $false,
+        
+        [Parameter(Mandatory = $false)]
+        [bool]$LstripBlocks = $false
     )
     
     try {
         Write-Verbose "Creating template engine instance"
         $engine = [TemplateEngine]::new()
+        
+        # Check environment variables for whitespace control settings
+        # Priority: explicit parameters > environment variables > default values
+        if (-not $PSBoundParameters.ContainsKey('TrimBlocks')) {
+            $envTrimBlocks = Get-AltarEnvironmentVariable -Name "Altar_TrimBlocks"
+            if ($null -ne $envTrimBlocks -and $envTrimBlocks -ne '') {
+                try {
+                    $TrimBlocks = [System.Convert]::ToBoolean($envTrimBlocks)
+                    Write-Verbose "TrimBlocks set from environment variable: $TrimBlocks"
+                } catch {
+                    Write-Warning "Invalid value for Altar_TrimBlocks environment variable: $envTrimBlocks. Using default value."
+                }
+            }
+        }
+        
+        if (-not $PSBoundParameters.ContainsKey('LstripBlocks')) {
+            $envLstripBlocks = Get-AltarEnvironmentVariable -Name "Altar_LstripBlocks"
+            if ($null -ne $envLstripBlocks -and $envLstripBlocks -ne '') {
+                try {
+                    $LstripBlocks = [System.Convert]::ToBoolean($envLstripBlocks)
+                    Write-Verbose "LstripBlocks set from environment variable: $LstripBlocks"
+                } catch {
+                    Write-Warning "Invalid value for Altar_LstripBlocks environment variable: $envLstripBlocks. Using default value."
+                }
+            }
+        }
         
         # Set undefined behavior if provided
         if ($PSBoundParameters.ContainsKey('UndefinedBehavior')) {
@@ -5259,6 +5402,16 @@ function Invoke-AltarTemplate {
             [Lexer]::LINE_COMMENT_PREFIX = $LineCommentPrefix
             Write-Verbose "Line comment prefix set to: $LineCommentPrefix"
         }
+        
+        # Set trim_blocks and lstrip_blocks
+        # This applies values from either explicit parameters or environment variables
+        [Lexer]::TRIM_BLOCKS = $TrimBlocks
+        $engine.Environment.TrimBlocks = $TrimBlocks
+        Write-Verbose "TrimBlocks set to: $TrimBlocks"
+        
+        [Lexer]::LSTRIP_BLOCKS = $LstripBlocks
+        $engine.Environment.LstripBlocks = $LstripBlocks
+        Write-Verbose "LstripBlocks set to: $LstripBlocks"
         
         if ($PSCmdlet.ParameterSetName -eq 'Path') {
             Write-Verbose "Using Path parameter set"
