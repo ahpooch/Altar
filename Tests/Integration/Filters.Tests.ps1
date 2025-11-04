@@ -3,6 +3,11 @@
 BeforeAll {
     # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+
+    # Mock environment variables to ensure test isolation
+    Mock Get-AltarEnvironmentVariable { 
+        return $null 
+    }
 }
 
 Describe "String Filters" {

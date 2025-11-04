@@ -1,5 +1,10 @@
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"
+
+    # Mock environment variables to ensure test isolation
+    Mock Get-AltarEnvironmentVariable { 
+        return $null 
+    }
 }
 
 Describe "Environment Variables Integration Tests" {
