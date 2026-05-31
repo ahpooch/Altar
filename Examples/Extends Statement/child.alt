@@ -1,6 +1,6 @@
 {% extends "base.alt" %}
 
-{% block title %}Overriden title{% endblock %}
+{% block title %}Overridden title{% endblock %}
 
 {% block content %}
 Content from child template.

@@ -127,7 +127,7 @@ Content from subdirectory
             $result | Should -BeLike "*First line.*"
             $result | Should -BeLike "*This is a first_include.alt text.*"
             $result | Should -BeLike "*Variable var is: TestVar*"
-            $result | Should -BeLike "*Hellow TestUser*"
+            $result | Should -BeLike "*Hello TestUser*"
             $result | Should -BeLike "*TestContent*"
             $result | Should -BeLike "*This is a second_include.alt text.*"
             $result | Should -BeLike "*This is a third_include.alt text.*"
