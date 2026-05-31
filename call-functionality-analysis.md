@@ -1,18 +1,18 @@
-# Анализ функционала Call в Altar
+# Call Functionality Analysis in Altar
 
-## Дата анализа
-24 октября 2025 г.
+## Analysis Date
+October 24, 2025
 
-## Резюме
-Функционал **Call** из Jinja2 **частично реализован** в Altar, но имеет критические проблемы, которые делают его **нерабочим** в текущем состоянии.
+## Summary
+The **Call** functionality from Jinja2 is **partially implemented** in Altar, but has critical issues that make it **non-functional** in its current state.
 
-## Что такое Call в Jinja2?
+## What is Call in Jinja2?
 
-Call block в Jinja2 - это специальная конструкция, которая позволяет передавать блок контента в макрос через специальную переменную `caller()`. Это делает макросы более гибкими и мощными.
+A call block in Jinja2 is a special construct that allows passing a block of content into a macro via the special variable `caller()`. This makes macros more flexible and powerful.
 
-### Основные возможности Call:
+### Core Call Features:
 
-1. **Базовое использование**: Передача блока контента в макрос
+1. **Basic usage**: Passing a block of content into a macro
 ```jinja2
 {% macro render_dialog(title) -%}
     <div>
@@ -28,7 +28,7 @@ Call block в Jinja2 - это специальная конструкция, к�
 {% endcall %}
 ```
 
-2. **Call с параметрами**: Макрос может передавать данные обратно в caller
+2. **Call with parameters**: The macro can pass data back to the caller
 ```jinja2
 {% macro dump_users(users) -%}
     <ul>
@@ -43,49 +43,49 @@ Call block в Jinja2 - это специальная конструкция, к�
 {% endcall %}
 ```
 
-## Текущее состояние в Altar
+## Current State in Altar
 
-### ✅ Что реализовано:
+### ✅ What is implemented:
 
-1. **AST узлы**:
-   - `CallNode` - класс для представления call блока в AST
-   - Содержит `MacroCall` и `Body` (контент блока)
+1. **AST nodes**:
+   - `CallNode` — class for representing a call block in the AST
+   - Contains `MacroCall` and `Body` (block content)
 
-2. **Парсинг**:
-   - `ParseCall()` метод существует
-   - Распознает синтаксис `{% call macroname() %} ... {% endcall %}`
-   - Парсит тело call блока
+2. **Parsing**:
+   - `ParseCall()` method exists
+   - Recognizes the syntax `{% call macroname() %} ... {% endcall %}`
+   - Parses the call block body
 
-3. **Компиляция**:
-   - `VisitCall()` метод существует
-   - Генерирует PowerShell код для call блока
-   - Создает функцию `__CALLER__` с контентом блока
+3. **Compilation**:
+   - `VisitCall()` method exists
+   - Generates PowerShell code for the call block
+   - Creates a `__CALLER__` function with the block content
 
-4. **Лексер**:
-   - Ключевые слова `call` и `endcall` добавлены в список keywords
+4. **Lexer**:
+   - Keywords `call` and `endcall` are added to the keywords list
 
-### ❌ Что НЕ работает:
+### ❌ What does NOT work:
 
-1. **Критическая проблема #1: caller() не определен**
+1. **Critical issue #1: caller() is not defined**
    ```
    Error: The term '__MACRO_caller__' is not recognized
    ```
-   - Компилятор создает функцию `__CALLER__`, но макрос пытается вызвать `__MACRO_caller__`
-   - Несоответствие имен функций
+   - The compiler creates a `__CALLER__` function, but the macro tries to call `__MACRO_caller__`
+   - Function name mismatch
 
-2. **Критическая проблема #2: Call с параметрами не парсится**
+2. **Critical issue #2: Call with parameters is not parsed**
    ```
    Error: Unexpected token PUNCTUATION. Expected: IDENTIFIER.
    ```
-   - Синтаксис `{% call(user) macroname() %}` не поддерживается
-   - Парсер не ожидает параметры в скобках после `call`
+   - The syntax `{% call(user) macroname() %}` is not supported
+   - The parser does not expect parameters in parentheses after `call`
 
-3. **Проблема #3: Передача параметров в caller()**
-   - Даже если базовый `caller()` заработает, передача параметров типа `caller(user)` не реализована
+3. **Issue #3: Passing parameters to caller()**
+   - Even if the basic `caller()` starts working, passing parameters like `caller(user)` is not implemented
 
-## Детальный анализ кода
+## Detailed Code Analysis
 
-### Парсер (ParseCall)
+### Parser (ParseCall)
 ```powershell
 [CallNode]ParseCall([Token]$startToken) {
     # Parse the macro call expression
@@ -102,9 +102,9 @@ Call block в Jinja2 - это специальная конструкция, к�
 }
 ```
 
-**Проблема**: Не обрабатывает параметры типа `{% call(user) ... %}`
+**Issue**: Does not handle parameters like `{% call(user) ... %}`
 
-### Компилятор (VisitCall)
+### Compiler (VisitCall)
 ```powershell
 [void]VisitCall([CallNode]$node) {
     # Generate code for call block with caller() support
@@ -121,56 +121,56 @@ Call block в Jinja2 - это специальная конструкция, к�
 }
 ```
 
-**Проблемы**:
-1. Создается `__CALLER__`, но макрос ищет `__MACRO_caller__`
-2. Не передаются параметры в caller функцию
-3. `$caller` устанавливается как переменная, но макрос вызывает её как функцию
+**Issues**:
+1. `__CALLER__` is created, but the macro looks for `__MACRO_caller__`
+2. Parameters are not passed to the caller function
+3. `$caller` is set as a variable, but the macro calls it as a function
 
-## Требуется ли функционал Call в Altar?
+## Is the Call Functionality Needed in Altar?
 
-### ✅ Аргументы ЗА:
+### ✅ Arguments FOR:
 
-1. **Совместимость с Jinja2**: Call - это стандартная функция Jinja2
-2. **Гибкость макросов**: Позволяет создавать более мощные и переиспользуемые компоненты
-3. **Альтернатива циклам**: Call с параметрами может заменять некоторые сложные циклы
-4. **Уже частично реализовано**: Базовая структура существует, нужны только исправления
+1. **Jinja2 compatibility**: Call is a standard Jinja2 feature
+2. **Macro flexibility**: Allows creating more powerful and reusable components
+3. **Alternative to loops**: Call with parameters can replace some complex loops
+4. **Already partially implemented**: The basic structure exists, only fixes are needed
 
-### ❌ Аргументы ПРОТИВ:
+### ❌ Arguments AGAINST:
 
-1. **Сложность**: Добавляет дополнительную сложность в шаблоны
-2. **Альтернативы**: Многие задачи можно решить через обычные макросы и циклы
-3. **Редкое использование**: В практике Jinja2 call используется нечасто
+1. **Complexity**: Adds additional complexity to templates
+2. **Alternatives**: Many tasks can be solved with regular macros and loops
+3. **Rare usage**: In practice, call is not used very often in Jinja2
 
-### 📊 Вывод: **ДА, функционал нужен**
+### 📊 Conclusion: **YES, the functionality is needed**
 
-Причины:
-- Уже частично реализован (50% работы сделано)
-- Важен для полной совместимости с Jinja2
-- Позволяет создавать более элегантные решения для сложных задач
-- Исправление требует относительно небольших изменений
+Reasons:
+- Already partially implemented (50% of the work is done)
+- Important for full Jinja2 compatibility
+- Allows creating more elegant solutions for complex tasks
+- The fix requires relatively small changes
 
-## Рекомендации по исправлению
+## Fix Recommendations
 
-### Приоритет 1: Исправить базовый caller()
+### Priority 1: Fix the basic caller()
 
-1. **Проблема**: Несоответствие имен `__CALLER__` vs `__MACRO_caller__`
+1. **Issue**: Name mismatch `__CALLER__` vs `__MACRO_caller__`
    
-   **Решение**: В `VisitCall()` изменить:
+   **Solution**: In `VisitCall()` change:
    ```powershell
-   # Вместо:
+   # Instead of:
    $this.AppendLine("function __CALLER__ {")
    
-   # Использовать:
+   # Use:
    $this.AppendLine("function __MACRO_caller__ {")
    ```
 
-2. **Проблема**: `$caller` как переменная вместо функции
+2. **Issue**: `$caller` as a variable instead of a function
    
-   **Решение**: Убрать строку `$caller = Get-Item function:__CALLER__` и просто определить функцию
+   **Solution**: Remove the line `$caller = Get-Item function:__CALLER__` and simply define the function
 
-### Приоритет 2: Добавить поддержку параметров в call
+### Priority 2: Add parameter support in call
 
-1. **В парсере**: Добавить парсинг параметров после `call`
+1. **In the parser**: Add parsing of parameters after `call`
    ```powershell
    [CallNode]ParseCall([Token]$startToken) {
        # Check for parameters: {% call(param1, param2) ... %}
@@ -191,7 +191,7 @@ Call block в Jinja2 - это специальная конструкция, к�
    }
    ```
 
-2. **В CallNode**: Добавить свойство для параметров
+2. **In CallNode**: Add a property for parameters
    ```powershell
    class CallNode : StatementNode {
        [MacroCallNode]$MacroCall
@@ -200,7 +200,7 @@ Call block в Jinja2 - это специальная конструкция, к�
    }
    ```
 
-3. **В компиляторе**: Передавать параметры в caller функцию
+3. **In the compiler**: Pass parameters to the caller function
    ```powershell
    # Generate caller function with parameters
    if ($node.Parameters.Count -gt 0) {
@@ -212,42 +212,42 @@ Call block в Jinja2 - это специальная конструкция, к�
    }
    ```
 
-### Приоритет 3: Добавить тесты
+### Priority 3: Add tests
 
-Создать файл `Tests/Integration/Call.Tests.ps1` с тестами:
-1. Базовый call без параметров
-2. Call с одним параметром
-3. Call с несколькими параметрами
-4. Call с вложенными макросами
-5. Call с условиями внутри
+Create the file `Tests/Integration/Call.Tests.ps1` with tests for:
+1. Basic call without parameters
+2. Call with one parameter
+3. Call with multiple parameters
+4. Call with nested macros
+5. Call with conditions inside
 
-### Приоритет 4: Добавить примеры
+### Priority 4: Add examples
 
-Создать `Examples/Call Block/` с примерами:
-1. `example-call-simple.alt` - базовый пример
-2. `example-call-with-params.alt` - с параметрами
-3. `example-call-dialog.alt` - практический пример (диалоги)
-4. `example-call-list.alt` - практический пример (списки)
+Create `Examples/Call Block/` with examples:
+1. `example-call-simple.alt` — basic example
+2. `example-call-with-params.alt` — with parameters
+3. `example-call-dialog.alt` — practical example (dialogs)
+4. `example-call-list.alt` — practical example (lists)
 
-## Оценка трудозатрат
+## Effort Estimate
 
-- **Исправление базового caller()**: 1-2 часа
-- **Добавление поддержки параметров**: 3-4 часа
-- **Написание тестов**: 2-3 часа
-- **Создание примеров и документации**: 1-2 часа
+- **Fixing basic caller()**: 1–2 hours
+- **Adding parameter support**: 3–4 hours
+- **Writing tests**: 2–3 hours
+- **Creating examples and documentation**: 1–2 hours
 
-**Итого**: 7-11 часов работы
+**Total**: 7–11 hours of work
 
-## Заключение
+## Conclusion
 
-Функционал Call в Altar:
-- ✅ **Реализован на 50%** (структура есть, но не работает)
-- ❌ **Имеет критические баги** (caller() не определен, параметры не поддерживаются)
-- ✅ **Необходим для полной совместимости с Jinja2**
-- ✅ **Может быть исправлен относительно быстро** (7-11 часов)
+Call functionality in Altar:
+- ✅ **50% implemented** (structure exists but does not work)
+- ❌ **Has critical bugs** (caller() is not defined, parameters are not supported)
+- ✅ **Required for full Jinja2 compatibility**
+- ✅ **Can be fixed relatively quickly** (7–11 hours)
 
-**Рекомендация**: Исправить и довести до рабочего состояния, так как:
-1. Базовая работа уже проделана
-2. Функционал важен для совместимости с Jinja2
-3. Исправление не требует больших затрат времени
-4. Добавляет значительную гибкость в работе с макросами
+**Recommendation**: Fix and bring to a working state, because:
+1. The foundational work has already been done
+2. The functionality is important for Jinja2 compatibility
+3. The fix does not require a large time investment
+4. Adds significant flexibility when working with macros

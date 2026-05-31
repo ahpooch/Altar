@@ -1,10 +1,10 @@
-# Анализ модификатора `scoped` в Jinja2 и Altar
+# Analysis of the `scoped` Modifier in Jinja2 and Altar
 
-## Что такое `scoped` в Jinja2?
+## What is `scoped` in Jinja2?
 
-В Jinja2 блоки по умолчанию **НЕ имеют доступа** к переменным внешней области видимости (например, переменным цикла). Это сделано намеренно для предотвращения проблем при наследовании шаблонов.
+In Jinja2, blocks do **NOT have access** to variables from the outer scope (e.g., loop variables) by default. This is intentional to prevent issues with template inheritance.
 
-### Пример проблемы в Jinja2 (без scoped):
+### Example of the problem in Jinja2 (without scoped):
 
 ```jinja2
 {% for item in seq %}
@@ -12,9 +12,9 @@
 {% endfor %}
 ```
 
-В Jinja2 этот код выведет **пустые** `<li>` элементы, потому что переменная `item` недоступна внутри блока.
+In Jinja2, this code will produce **empty** `<li>` elements, because the variable `item` is not accessible inside the block.
 
-### Решение в Jinja2 - модификатор `scoped`:
+### Solution in Jinja2 — the `scoped` modifier:
 
 ```jinja2
 {% for item in seq %}
@@ -22,13 +22,13 @@
 {% endfor %}
 ```
 
-Модификатор `scoped` **разрешает** блоку доступ к переменным внешней области видимости.
+The `scoped` modifier **grants** the block access to variables from the outer scope.
 
-## Поведение в Altar
+## Behavior in Altar
 
-### Текущая реализация:
+### Current implementation:
 
-В Altar блоки внутри циклов **УЖЕ имеют доступ** к переменным цикла по умолчанию:
+In Altar, blocks inside loops **ALREADY have access** to loop variables by default:
 
 ```altar
 {% for item in items %}
@@ -36,59 +36,59 @@
 {% endfor %}
 ```
 
-**Результат:**
+**Output:**
 ```html
 <li>apple</li>
 <li>banana</li>
 <li>cherry</li>
 ```
 
-### Почему это работает?
+### Why does this work?
 
-**Причина:** PowerShell использует динамическую область видимости.
+**Reason:** PowerShell uses dynamic scoping.
 
-Когда компилятор генерирует код для цикла:
+When the compiler generates code for a loop:
 
 ```powershell
 foreach ($item in $LoopItems) {
-    # Создание loop переменной
+    # Creating the loop variable
     $loop = [PSCustomObject]@{ ... }
     
-    # Код блока генерируется здесь же, в той же области видимости
+    # Block code is generated here, in the same scope
     $output.Append($item.ToString()) | Out-Null
 }
 ```
 
-Переменная `$item` создается в области видимости `foreach` и автоматически доступна во всех вложенных блоках кода, включая код, сгенерированный для `{% block %}`.
+The variable `$item` is created in the `foreach` scope and is automatically accessible in all nested code blocks, including the code generated for `{% block %}`.
 
-## Сравнение
+## Comparison
 
-| Аспект | Jinja2 (без scoped) | Jinja2 (с scoped) | Altar (текущее) |
-|--------|---------------------|-------------------|-----------------|
-| Доступ к переменным цикла в блоке | ❌ Нет | ✅ Да | ✅ Да (по умолчанию) |
-| Синтаксис | `{% block name %}` | `{% block name scoped %}` | `{% block name %}` |
-| Изоляция блоков | ✅ Да | ❌ Нет | ❌ Нет |
+| Aspect | Jinja2 (without scoped) | Jinja2 (with scoped) | Altar (current) |
+|--------|-------------------------|----------------------|-----------------|
+| Access to loop variables inside a block | ❌ No | ✅ Yes | ✅ Yes (by default) |
+| Syntax | `{% block name %}` | `{% block name scoped %}` | `{% block name %}` |
+| Block isolation | ✅ Yes | ❌ No | ❌ No |
 
-## Рекомендации
+## Recommendations
 
-### Вариант 1: Оставить как есть
-- **Плюсы:** Проще в использовании, не требует дополнительного синтаксиса
-- **Минусы:** Отличается от поведения Jinja2 по умолчанию
+### Option 1: Leave as is
+- **Pros:** Simpler to use, no additional syntax required
+- **Cons:** Differs from the default Jinja2 behavior
 
-### Вариант 2: Реализовать полную совместимость с Jinja2
-- Изменить поведение по умолчанию: блоки НЕ имеют доступа к внешним переменным
-- Добавить поддержку модификатора `scoped` для разрешения доступа
-- **Плюсы:** Полная совместимость с Jinja2
-- **Минусы:** Breaking change, усложнение реализации
+### Option 2: Implement full Jinja2 compatibility
+- Change the default behavior: blocks do NOT have access to outer variables
+- Add support for the `scoped` modifier to grant access
+- **Pros:** Full Jinja2 compatibility
+- **Cons:** Breaking change, increased implementation complexity
 
-### Вариант 3: Добавить поддержку синтаксиса `scoped` (без изменения поведения)
-- Парсер принимает модификатор `scoped`, но игнорирует его
-- Поведение остается прежним (доступ всегда разрешен)
-- **Плюсы:** Синтаксическая совместимость, шаблоны Jinja2 со `scoped` будут работать
-- **Минусы:** Семантическая несовместимость (но это уже есть)
+### Option 3: Add `scoped` syntax support (without changing behavior)
+- The parser accepts the `scoped` modifier but ignores it
+- Behavior remains the same (access is always granted)
+- **Pros:** Syntactic compatibility — Jinja2 templates using `scoped` will work
+- **Cons:** Semantic incompatibility (but this already exists)
 
-## Текущий статус
+## Current Status
 
-Модификатор `scoped` **НЕ реализован** в Altar. Парсер выдает ошибку при попытке использовать этот синтаксис.
+The `scoped` modifier is **NOT implemented** in Altar. The parser throws an error when attempting to use this syntax.
 
-Рекомендуется **Вариант 3**: добавить поддержку синтаксиса для совместимости, сохранив текущее поведение.
+**Option 3** is recommended: add syntax support for compatibility while preserving the current behavior.

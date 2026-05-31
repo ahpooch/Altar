@@ -1,15 +1,15 @@
 . .\Altar.ps1
 
-# Установим переменные окружения
+# Set environment variables
 $env:Altar_TrimBlocks = "true"
 $env:Altar_LstripBlocks = "false"
 
-# Проверим что lexer получил значения
+# Check that the lexer received the values
 Write-Host "Before Invoke-AltarTemplate:"
 Write-Host "Lexer TRIM_BLOCKS: $([Lexer]::TRIM_BLOCKS)"
 Write-Host "Lexer LSTRIP_BLOCKS: $([Lexer]::LSTRIP_BLOCKS)"
 
-# Создадим простой шаблон
+# Create a simple template
 $template = @"
 <ul>
     {% for item in items %}
@@ -22,7 +22,7 @@ $context = @{
     items = @('one', 'two')
 }
 
-# Вызовем Invoke-AltarTemplate БЕЗ явных параметров
+# Call Invoke-AltarTemplate WITHOUT explicit parameters
 $result = Invoke-AltarTemplate -Template $template -Context $context
 
 Write-Host "`nAfter Invoke-AltarTemplate:"
@@ -35,6 +35,6 @@ Write-Host $result
 Write-Host "`nResult (escaped for debugging):"
 Write-Host ($result -replace "`r", '\r' -replace "`n", '\n')
 
-# Очистим переменные окружения
+# Clear environment variables
 $env:Altar_TrimBlocks = $null
 $env:Altar_LstripBlocks = $null

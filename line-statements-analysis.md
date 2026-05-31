@@ -1,9 +1,9 @@
-# Анализ возможности реализации Line Statements и Line Comments в Altar
+# Analysis of Line Statements and Line Comments Implementation in Altar
 
-## Обзор функционала Jinja2
+## Jinja2 Feature Overview
 
 ### Line Statements
-Jinja2 позволяет использовать специальный префикс (например, `#`) для обозначения строк как statements:
+Jinja2 allows using a special prefix (e.g., `#`) to mark lines as statements:
 
 ```jinja2
 # for item in seq:
@@ -11,20 +11,20 @@ Jinja2 позволяет использовать специальный пре
 # endfor
 ```
 
-Эквивалентно:
+Equivalent to:
 ```jinja2
 {% for item in seq %}
     <li>{{ item }}</li>
 {% endfor %}
 ```
 
-**Особенности:**
-1. Префикс может быть в любом месте строки, если перед ним нет текста
-2. Statements могут заканчиваться двоеточием `:` для читаемости
-3. Поддержка многострочных statements при открытых скобках
+**Features:**
+1. The prefix can appear anywhere on a line, as long as there is no text before it
+2. Statements can end with a colon `:` for readability
+3. Support for multi-line statements with open brackets
 
 ### Line Comments
-Позволяет использовать префикс (например, `##`) для комментариев:
+Allows using a prefix (e.g., `##`) for comments:
 
 ```jinja2
 # for item in seq:
@@ -32,49 +32,49 @@ Jinja2 позволяет использовать специальный пре
 # endfor
 ```
 
-## Возможность реализации в Altar
+## Implementation Feasibility in Altar
 
-### ✅ МОЖНО РЕАЛИЗОВАТЬ
+### ✅ CAN BE IMPLEMENTED
 
-Да, этот функционал можно реализовать в Altar. Вот почему:
+Yes, this functionality can be implemented in Altar. Here is why:
 
-#### 1. Архитектурная совместимость
-- Altar использует трёхэтапную обработку: Lexer → Parser → Compiler
-- Line statements и line comments обрабатываются на этапе **Lexer**
-- Текущая архитектура Lexer уже поддерживает состояния и может быть расширена
+#### 1. Architectural Compatibility
+- Altar uses a three-stage pipeline: Lexer → Parser → Compiler
+- Line statements and line comments are handled at the **Lexer** stage
+- The current Lexer architecture already supports states and can be extended
 
-#### 2. Существующие аналоги в Altar
-Altar уже имеет похожие механизмы:
-- Whitespace trimming (`{%-` и `-%}`)
-- Различные типы токенов (TEXT, BLOCK_START, COMMENT_START)
-- Обработка многострочных конструкций (raw blocks)
+#### 2. Existing Analogues in Altar
+Altar already has similar mechanisms:
+- Whitespace trimming (`{%-` and `-%}`)
+- Various token types (TEXT, BLOCK_START, COMMENT_START)
+- Multi-line construct handling (raw blocks)
 
-#### 3. Точки интеграции
+#### 3. Integration Points
 
-**В классе Lexer:**
+**In the Lexer class:**
 ```powershell
 class Lexer {
-    static [string]$LINE_STATEMENT_PREFIX = $null  # Например: '#'
-    static [string]$LINE_COMMENT_PREFIX = $null    # Например: '##'
+    static [string]$LINE_STATEMENT_PREFIX = $null  # e.g.: '#'
+    static [string]$LINE_COMMENT_PREFIX = $null    # e.g.: '##'
     
-    # Новый метод для обработки line statements
+    # New method for handling line statements
     [void]TokenizeLineStatement([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens)
     
-    # Новый метод для обработки line comments
+    # New method for handling line comments
     [void]TokenizeLineComment([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens)
 }
 ```
 
-**В методе TokenizeInitial:**
-- Проверка начала строки на наличие line_statement_prefix
-- Проверка на наличие line_comment_prefix
-- Преобразование line statement в обычные BLOCK_START/BLOCK_END токены
+**In the TokenizeInitial method:**
+- Check the beginning of a line for the presence of line_statement_prefix
+- Check for the presence of line_comment_prefix
+- Convert a line statement into regular BLOCK_START/BLOCK_END tokens
 
-## Детальный план реализации
+## Detailed Implementation Plan
 
-### Этап 1: Расширение Lexer
+### Stage 1: Extending the Lexer
 
-#### 1.1 Добавление статических свойств
+#### 1.1 Adding Static Properties
 ```powershell
 class Lexer {
     static [string]$LINE_STATEMENT_PREFIX = $null
@@ -82,11 +82,11 @@ class Lexer {
 }
 ```
 
-#### 1.2 Модификация TokenizeInitial
-Добавить проверку в начале метода:
+#### 1.2 Modifying TokenizeInitial
+Add checks at the beginning of the method:
 ```powershell
 [void]TokenizeInitial([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
-    # Проверка на line comment
+    # Check for line comment
     if (![string]::IsNullOrEmpty([Lexer]::LINE_COMMENT_PREFIX)) {
         if ($this.CheckLineComment($state)) {
             $this.TokenizeLineComment($state, $tokens)
@@ -94,7 +94,7 @@ class Lexer {
         }
     }
     
-    # Проверка на line statement
+    # Check for line statement
     if (![string]::IsNullOrEmpty([Lexer]::LINE_STATEMENT_PREFIX)) {
         if ($this.CheckLineStatement($state)) {
             $this.TokenizeLineStatement($state, $tokens)
@@ -102,18 +102,18 @@ class Lexer {
         }
     }
     
-    # Существующая логика...
+    # Existing logic...
 }
 ```
 
-#### 1.3 Новые вспомогательные методы
+#### 1.3 New Helper Methods
 
 **CheckLineStatement:**
 ```powershell
 [bool]CheckLineStatement([LexerState]$state) {
-    # Проверяем, что мы в начале строки или после whitespace
+    # Check that we are at the beginning of a line or after whitespace
     if ($state.Column -eq 1 -or $this.IsAtLineStart($state)) {
-        # Проверяем наличие префикса
+        # Check for the prefix
         $prefix = [Lexer]::LINE_STATEMENT_PREFIX
         $prefixLen = $prefix.Length
         
@@ -135,40 +135,40 @@ class Lexer {
 [void]TokenizeLineStatement([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
     $state.CaptureStart()
     
-    # Пропускаем префикс
+    # Skip the prefix
     $prefix = [Lexer]::LINE_STATEMENT_PREFIX
     for ($i = 0; $i -lt $prefix.Length; $i++) {
         $state.Consume()
     }
     
-    # Пропускаем whitespace после префикса
+    # Skip whitespace after the prefix
     $this.SkipWhitespace($state)
     
-    # Добавляем BLOCK_START токен
+    # Add BLOCK_START token
     $tokens.Add([Token]::new([TokenType]::BLOCK_START, '{%', $state.StartLine, $state.StartColumn, $state.Filename))
     
-    # Переключаемся в состояние BLOCK
+    # Switch to BLOCK state
     $state.States.Push("BLOCK")
     
-    # Собираем содержимое до конца строки
+    # Collect content until end of line
     $lineContent = ""
     $hasOpenBrackets = $false
     
     while (-not $state.IsEOF()) {
         $char = $state.Peek()
         
-        # Проверяем открытые скобки для многострочных statements
+        # Check for open brackets for multi-line statements
         if ($char -in @('(', '[', '{')) {
             $hasOpenBrackets = $true
         }
         elseif ($char -in @(')', ']', '}')) {
-            # Проверяем, закрыты ли все скобки
-            # (требуется более сложная логика подсчёта)
+            # Check if all brackets are closed
+            # (requires more complex counting logic)
         }
         
-        # Проверяем конец строки
+        # Check for end of line
         if ($char -eq "`n" -and -not $hasOpenBrackets) {
-            # Удаляем опциональное двоеточие в конце
+            # Remove optional trailing colon
             if ($lineContent.TrimEnd().EndsWith(':')) {
                 $lineContent = $lineContent.TrimEnd().TrimEnd(':')
             }
@@ -180,8 +180,8 @@ class Lexer {
         $state.Consume()
     }
     
-    # Токенизируем содержимое как обычное выражение
-    # (создаём временный lexer для обработки содержимого)
+    # Tokenize the content as a regular expression
+    # (create a temporary lexer to process the content)
     $tempLexer = [Lexer]::new()
     $tempState = [LexerState]::new($lineContent, $state.Filename)
     
@@ -189,10 +189,10 @@ class Lexer {
         $tempLexer.TokenizeExpression($tempState, $tokens, "BLOCK")
     }
     
-    # Добавляем BLOCK_END токен
+    # Add BLOCK_END token
     $tokens.Add([Token]::new([TokenType]::BLOCK_END, '%}', $state.Line, $state.Column, $state.Filename))
     
-    # Возвращаемся в состояние INITIAL
+    # Return to INITIAL state
     $state.States.Pop()
 }
 ```
@@ -216,29 +216,29 @@ class Lexer {
 **TokenizeLineComment:**
 ```powershell
 [void]TokenizeLineComment([LexerState]$state, [System.Collections.Generic.List[Token]]$tokens) {
-    # Пропускаем префикс
+    # Skip the prefix
     $prefix = [Lexer]::LINE_COMMENT_PREFIX
     for ($i = 0; $i -lt $prefix.Length; $i++) {
         $state.Consume()
     }
     
-    # Пропускаем всё до конца строки
+    # Skip everything until end of line
     while (-not $state.IsEOF() -and $state.Peek() -ne "`n") {
         $state.Consume()
     }
     
-    # Пропускаем символ новой строки
+    # Skip the newline character
     if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
         $state.Consume()
     }
     
-    # Не добавляем никаких токенов - комментарий игнорируется
+    # No tokens are added — the comment is ignored
 }
 ```
 
-### Этап 2: API для настройки
+### Stage 2: Configuration API
 
-#### 2.1 Добавление в TemplateEngine
+#### 2.1 Adding to TemplateEngine
 ```powershell
 class TemplateEngine {
     [string]$LineStatementPrefix
@@ -251,16 +251,16 @@ class TemplateEngine {
     }
     
     [string]Render([string]$template, [hashtable]$context) {
-        # Устанавливаем префиксы в Lexer перед токенизацией
+        # Set prefixes in the Lexer before tokenization
         [Lexer]::LINE_STATEMENT_PREFIX = $this.LineStatementPrefix
         [Lexer]::LINE_COMMENT_PREFIX = $this.LineCommentPrefix
         
-        # Существующая логика...
+        # Existing logic...
     }
 }
 ```
 
-#### 2.2 Обновление Invoke-AltarTemplate
+#### 2.2 Updating Invoke-AltarTemplate
 ```powershell
 function Invoke-AltarTemplate {
     [CmdletBinding(DefaultParameterSetName = 'Path')]
@@ -291,13 +291,13 @@ function Invoke-AltarTemplate {
         $engine.LineCommentPrefix = $LineCommentPrefix
     }
     
-    # Существующая логика...
+    # Existing logic...
 }
 ```
 
-### Этап 3: Тестирование
+### Stage 3: Testing
 
-#### 3.1 Тесты для Line Statements
+#### 3.1 Tests for Line Statements
 ```powershell
 # Tests/Integration/LineStatements.Tests.ps1
 
@@ -366,7 +366,7 @@ Describe "Line Statements" {
 }
 ```
 
-#### 3.2 Тесты для Line Comments
+#### 3.2 Tests for Line Comments
 ```powershell
 Describe "Line Comments" {
     It "Should ignore line comments" {
@@ -389,27 +389,27 @@ Describe "Line Comments" {
 }
 ```
 
-## Сложности и ограничения
+## Challenges and Limitations
 
-### 1. Многострочные statements
-**Проблема:** Требуется отслеживание открытых/закрытых скобок
-**Решение:** Реализовать счётчик скобок в TokenizeLineStatement
+### 1. Multi-line statements
+**Problem:** Requires tracking of open/closed brackets
+**Solution:** Implement a bracket counter in TokenizeLineStatement
 
-### 2. Префикс в середине строки
-**Проблема:** Jinja2 позволяет префикс в любом месте, если перед ним нет текста
-**Решение:** Проверять, что перед префиксом только whitespace
+### 2. Prefix in the middle of a line
+**Problem:** Jinja2 allows the prefix anywhere as long as there is no text before it
+**Solution:** Verify that only whitespace precedes the prefix
 
-### 3. Взаимодействие с существующими токенами
-**Проблема:** Line statements должны корректно работать с `{{`, `{%`, `{#`
-**Решение:** Проверять line statement prefix в начале TokenizeInitial, до проверки других токенов
+### 3. Interaction with existing tokens
+**Problem:** Line statements must work correctly with `{{`, `{%`, `{#`
+**Solution:** Check the line statement prefix at the beginning of TokenizeInitial, before checking other tokens
 
-### 4. Производительность
-**Проблема:** Дополнительные проверки на каждой строке
-**Решение:** Проверки выполняются только если префиксы установлены (не null)
+### 4. Performance
+**Problem:** Additional checks on every line
+**Solution:** Checks are performed only if prefixes are set (not null)
 
-## Примеры использования
+## Usage Examples
 
-### Пример 1: Базовое использование
+### Example 1: Basic Usage
 ```powershell
 $template = @"
 <ul>
@@ -425,7 +425,7 @@ $engine.LineStatementPrefix = '#'
 $result = $engine.Render($template, @{ items = @(1, 2, 3) })
 ```
 
-### Пример 2: С комментариями
+### Example 2: With Comments
 ```powershell
 $template = @"
 ## This is a header comment
@@ -441,41 +441,41 @@ $engine.LineCommentPrefix = '##'
 $result = $engine.Render($template, @{ items = @('A', 'B') })
 ```
 
-### Пример 3: Через Invoke-AltarTemplate
+### Example 3: Using Invoke-AltarTemplate
 ```powershell
 Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3) } `
     -LineStatementPrefix '#' -LineCommentPrefix '##'
 ```
 
-## Рекомендации по реализации
+## Implementation Recommendations
 
-### Приоритет 1 (Обязательно)
-1. ✅ Базовая поддержка line statements с простым префиксом
-2. ✅ Базовая поддержка line comments
-3. ✅ Поддержка опционального двоеточия в конце statement
+### Priority 1 (Required)
+1. ✅ Basic support for line statements with a simple prefix
+2. ✅ Basic support for line comments
+3. ✅ Support for optional colon at the end of a statement
 
-### Приоритет 2 (Желательно)
-4. ⚠️ Поддержка многострочных statements (со скобками)
-5. ⚠️ Префикс в любом месте строки (после whitespace)
+### Priority 2 (Desirable)
+4. ⚠️ Support for multi-line statements (with brackets)
+5. ⚠️ Prefix anywhere on a line (after whitespace)
 
-### Приоритет 3 (Опционально)
-6. ⭕ Настройка через конфигурационный файл
-7. ⭕ Автоопределение префиксов из шаблона
+### Priority 3 (Optional)
+6. ⭕ Configuration via a config file
+7. ⭕ Auto-detection of prefixes from the template
 
-## Заключение
+## Conclusion
 
-**Вердикт: ДА, можно реализовать**
+**Verdict: YES, it can be implemented**
 
-Функционал line statements и line comments из Jinja2 полностью совместим с архитектурой Altar и может быть реализован с минимальными изменениями в классе Lexer.
+The line statements and line comments functionality from Jinja2 is fully compatible with the Altar architecture and can be implemented with minimal changes to the Lexer class.
 
-**Преимущества реализации:**
-- ✅ Совместимость с Jinja2 шаблонами
-- ✅ Улучшенная читаемость для некоторых типов шаблонов
-- ✅ Гибкость в выборе синтаксиса
+**Benefits of implementation:**
+- ✅ Compatibility with Jinja2 templates
+- ✅ Improved readability for certain types of templates
+- ✅ Flexibility in syntax choice
 
-**Оценка трудозатрат:**
-- Базовая реализация: ~4-6 часов
-- Полная реализация с тестами: ~8-12 часов
-- Документация и примеры: ~2-4 часа
+**Effort estimate:**
+- Basic implementation: ~4–6 hours
+- Full implementation with tests: ~8–12 hours
+- Documentation and examples: ~2–4 hours
 
-**Итого:** ~14-22 часа для полной реализации
+**Total:** ~14–22 hours for a complete implementation

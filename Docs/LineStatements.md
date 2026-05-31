@@ -1,16 +1,16 @@
-# Line Statements и Line Comments в Altar
+# Line Statements and Line Comments in Altar
 
-## Обзор
+## Overview
 
-Altar поддерживает синтаксис line statements и line comments, совместимый с Jinja2. Это позволяет писать более компактные и читаемые шаблоны, используя специальные префиксы для операторов и комментариев вместо полных тегов `{% %}` и `{# #}`.
+Altar supports line statements and line comments syntax compatible with Jinja2. This allows you to write more compact and readable templates using special prefixes for statements and comments instead of full `{% %}` and `{# #}` tags.
 
 ## Line Statements
 
-### Что такое Line Statements?
+### What are Line Statements?
 
-Line statements позволяют использовать специальный префикс (например, `#`) в начале строки вместо блочных тегов `{% %}`. Это делает шаблоны более компактными и похожими на обычный код.
+Line statements allow you to use a special prefix (e.g., `#`) at the beginning of a line instead of block tags `{% %}`. This makes templates more compact and similar to regular code.
 
-### Синтаксис
+### Syntax
 
 ```altar
 # for item in items
@@ -18,7 +18,7 @@ Line statements позволяют использовать специальны
 # endfor
 ```
 
-Эквивалентно:
+Equivalent to:
 
 ```altar
 {% for item in items %}
@@ -26,31 +26,31 @@ Line statements позволяют использовать специальны
 {% endfor %}
 ```
 
-### Настройка префикса
+### Configuring the Prefix
 
-Префикс для line statements настраивается через параметр `LineStatementPrefix` функции `Invoke-AltarTemplate`:
+The prefix for line statements is configured via the `LineStatementPrefix` parameter of the `Invoke-AltarTemplate` function:
 
 ```powershell
 Invoke-AltarTemplate -Template $template -Context $context -LineStatementPrefix '#'
 ```
 
-Или напрямую через статическое свойство:
+Or directly via the static property:
 
 ```powershell
 [Lexer]::LINE_STATEMENT_PREFIX = '#'
 ```
 
-### Правила использования
+### Usage Rules
 
-1. **Префикс должен быть в начале строки** (после пробелов/табуляции)
-2. **Поддерживаются все операторы**: `for`, `if`, `elif`, `else`, `endif`, `endfor`, и т.д.
-3. **Опциональное двоеточие** в конце строки (как в Jinja2):
+1. **The prefix must be at the beginning of the line** (after spaces/tabs)
+2. **All statements are supported**: `for`, `if`, `elif`, `else`, `endif`, `endfor`, etc.
+3. **Optional colon** at the end of the line (as in Jinja2):
    ```altar
    # for item in items:
        {{ item }}
    # endfor
    ```
-4. **Работает с отступами** - можно использовать вложенные конструкции:
+4. **Works with indentation** — nested constructs can be used:
    ```altar
    # for category in categories
        <h2>{{ category.name }}</h2>
@@ -60,9 +60,9 @@ Invoke-AltarTemplate -Template $template -Context $context -LineStatementPrefix 
    # endfor
    ```
 
-### Примеры
+### Examples
 
-#### Базовый цикл
+#### Basic Loop
 
 ```altar
 <ul>
@@ -72,7 +72,7 @@ Invoke-AltarTemplate -Template $template -Context $context -LineStatementPrefix 
 </ul>
 ```
 
-#### Условные операторы
+#### Conditional Statements
 
 ```altar
 # if user_logged_in
@@ -82,7 +82,7 @@ Invoke-AltarTemplate -Template $template -Context $context -LineStatementPrefix 
 # endif
 ```
 
-#### Вложенные конструкции
+#### Nested Constructs
 
 ```altar
 # for category in categories
@@ -97,104 +97,104 @@ Invoke-AltarTemplate -Template $template -Context $context -LineStatementPrefix 
 
 ## Line Comments
 
-### Что такое Line Comments?
+### What are Line Comments?
 
-Line comments позволяют добавлять комментарии в шаблон, используя специальный префикс (например, `##`). Комментарии полностью игнорируются при рендеринге.
+Line comments allow you to add comments to a template using a special prefix (e.g., `##`). Comments are completely ignored during rendering.
 
-### Синтаксис
+### Syntax
 
 ```altar
-## Это комментарий - будет проигнорирован
+## This is a comment - it will be ignored
 <h1>User Profile</h1>
 
-## Следующая секция отображает информацию о пользователе
+## The following section displays user information
 # if user
     <div class="profile">
-        <h2>{{ user.name }}</h2>  ## Отображаем имя пользователя
+        <h2>{{ user.name }}</h2>  ## Display the user's name
     </div>
 # endif
 ```
 
-### Настройка префикса
+### Configuring the Prefix
 
-Префикс для line comments настраивается через параметр `LineCommentPrefix`:
+The prefix for line comments is configured via the `LineCommentPrefix` parameter:
 
 ```powershell
 Invoke-AltarTemplate -Template $template -Context $context `
     -LineStatementPrefix '#' -LineCommentPrefix '##'
 ```
 
-Или напрямую:
+Or directly:
 
 ```powershell
 [Lexer]::LINE_COMMENT_PREFIX = '##'
 ```
 
-### Типы комментариев
+### Comment Types
 
-1. **Полные строки комментариев**:
+1. **Full-line comments**:
    ```altar
-   ## Это комментарий на всю строку
+   ## This is a full-line comment
    ```
 
-2. **Inline комментарии**:
+2. **Inline comments**:
    ```altar
-   <li>{{ item }}</li>  ## Комментарий в конце строки
+   <li>{{ item }}</li>  ## Comment at the end of the line
    ```
 
-### Примеры
+### Examples
 
 ```altar
-## Заголовок шаблона
+## Template header
 <h1>Product List</h1>
 
-## Цикл по продуктам
+## Loop over products
 # for product in products
-    <li>{{ product.name }}</li>  ## Отображаем название
+    <li>{{ product.name }}</li>  ## Display the name
 # endfor
 
-## Конец шаблона
+## End of template
 ```
 
-## Пользовательские префиксы
+## Custom Prefixes
 
-Вы можете использовать любые префиксы, которые вам нравятся:
+You can use any prefixes you like:
 
 ```powershell
-# Использование % для операторов и // для комментариев
+# Using % for statements and // for comments
 Invoke-AltarTemplate -Template $template -Context $context `
     -LineStatementPrefix '%' -LineCommentPrefix '//'
 ```
 
-Пример шаблона:
+Example template:
 
 ```altar
-// Список пользователей
+// User list
 % for user in users
-    <div>{{ user.name }}</div>  // Имя пользователя
+    <div>{{ user.name }}</div>  // User name
 % endfor
 ```
 
-## Совместимость с Jinja2
+## Jinja2 Compatibility
 
-Функционал line statements и line comments полностью совместим с Jinja2:
+Line statements and line comments functionality is fully compatible with Jinja2:
 
-- ✅ Префиксы настраиваются аналогично Jinja2
-- ✅ Поддержка опционального двоеточия в конце line statements
-- ✅ Line comments работают как в Jinja2 (полные строки и inline)
-- ✅ Префикс должен быть в начале строки (после пробелов)
-- ✅ Работает с вложенными конструкциями
+- ✅ Prefixes are configured analogously to Jinja2
+- ✅ Support for optional colon at the end of line statements
+- ✅ Line comments work as in Jinja2 (full-line and inline)
+- ✅ Prefix must be at the beginning of a line (after spaces)
+- ✅ Works with nested constructs
 
-## Важные замечания
+## Important Notes
 
-1. **Префиксы сбрасываются после рендеринга** - это предотвращает побочные эффекты между разными вызовами
-2. **Кэширование учитывает префиксы** - изменение префиксов инвалидирует кэш
-3. **Line statements имеют приоритет над обычным текстом** - если строка начинается с префикса, она обрабатывается как оператор
-4. **Trailing whitespace перед inline комментариями удаляется** - это обеспечивает чистый вывод
+1. **Prefixes are reset after rendering** — this prevents side effects between different calls
+2. **Caching accounts for prefixes** — changing prefixes invalidates the cache
+3. **Line statements take priority over plain text** — if a line starts with the prefix, it is processed as a statement
+4. **Trailing whitespace before inline comments is removed** — this ensures clean output
 
-## Примеры использования
+## Usage Examples
 
-### Пример 1: Простой список
+### Example 1: Simple List
 
 ```powershell
 $template = @"
@@ -211,18 +211,18 @@ $result = Invoke-AltarTemplate -Template $template -Context $context `
     -LineStatementPrefix '#'
 ```
 
-### Пример 2: С комментариями
+### Example 2: With Comments
 
 ```powershell
 $template = @"
-## Шаблон профиля пользователя
+## User profile template
 # if user
     <div class="profile">
-        <h2>{{ user.name }}</h2>  ## Имя
+        <h2>{{ user.name }}</h2>  ## Name
         <p>{{ user.email }}</p>   ## Email
     </div>
 # else
-    <p>Пользователь не найден</p>
+    <p>User not found</p>
 # endif
 "@
 
@@ -232,7 +232,7 @@ $result = Invoke-AltarTemplate -Template $template -Context $context `
     -LineStatementPrefix '#' -LineCommentPrefix '##'
 ```
 
-### Пример 3: Вложенные циклы
+### Example 3: Nested Loops
 
 ```powershell
 $template = @"
@@ -257,10 +257,11 @@ $result = Invoke-AltarTemplate -Template $template -Context $context `
     -LineStatementPrefix '#'
 ```
 
-## Отключение функционала
+## Disabling the Feature
 
-Если вы не хотите использовать line statements и line comments, просто не устанавливайте префиксы. По умолчанию они отключены:
+If you do not want to use line statements and line comments, simply do not set the prefixes. By default they are disabled:
 
 ```powershell
-# Обычный режим без line statements
+# Normal mode without line statements
 $result = Invoke-AltarTemplate -Template $template -Context $context
+```
