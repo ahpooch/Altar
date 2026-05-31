@@ -1623,7 +1623,7 @@ class Parser {
             "from" { return $this.ParseFromImport($startToken) }
             default { throw "Unknown block keyword: $($keyword.Value)" }
         }
-        return $null # only for PSScriptAnalyzer because it cannot understand derfault statement in switch
+        return $null # only for PSScriptAnalyzer because it cannot understand default statement in switch
     }
     
     [ExtendsNode]ParseExtends([Token]$startToken) {
@@ -3401,7 +3401,7 @@ class PowershellCompiler {
         
         switch ($this.UndefinedBehavior) {
             ([UndefinedBehavior]::Default) {
-                # Jinja2 default: output empty string for undefined, empty string for null
+                # Jinja2 default: empty string for undefined variable; 'None' for explicit null
                 $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
                 $this.AppendLine("if (`$__var_exists__) {")
                 $this.IndentLevel++
@@ -3410,14 +3410,17 @@ class PowershellCompiler {
                 $this.IndentLevel++
                 $this.OutputValue()
                 $this.IndentLevel--
+                $this.AppendLine("} else {")
+                $this.IndentLevel++
+                $this.AppendLine("`$output.Append('None') | Out-Null")
+                $this.IndentLevel--
                 $this.AppendLine("}")
-                $this.AppendLine("# If null, output empty string (do nothing)")
                 $this.IndentLevel--
                 $this.AppendLine("}")
                 $this.AppendLine("# If undefined, output empty string (do nothing)")
             }
             ([UndefinedBehavior]::Strict) {
-                # Throw exception for undefined variables
+                # Throw exception for undefined; render explicit null as 'None' (Jinja2)
                 $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
                 $this.AppendLine("if (-not `$__var_exists__) {")
                 $this.IndentLevel++
@@ -3429,10 +3432,14 @@ class PowershellCompiler {
                 $this.IndentLevel++
                 $this.OutputValue()
                 $this.IndentLevel--
+                $this.AppendLine("} else {")
+                $this.IndentLevel++
+                $this.AppendLine("`$output.Append('None') | Out-Null")
+                $this.IndentLevel--
                 $this.AppendLine("}")
             }
             ([UndefinedBehavior]::Debug) {
-                # Output placeholder for undefined variables
+                # Output placeholder for undefined; 'None' for explicit null (Jinja2)
                 $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$varName' -ErrorAction SilentlyContinue)")
                 $this.AppendLine("if (`$__var_exists__) {")
                 $this.IndentLevel++
@@ -3440,6 +3447,10 @@ class PowershellCompiler {
                 $this.AppendLine("if (`$null -ne `$__value__) {")
                 $this.IndentLevel++
                 $this.OutputValue()
+                $this.IndentLevel--
+                $this.AppendLine("} else {")
+                $this.IndentLevel++
+                $this.AppendLine("`$output.Append('None') | Out-Null")
                 $this.IndentLevel--
                 $this.AppendLine("}")
                 $this.IndentLevel--
@@ -3482,12 +3493,13 @@ class PowershellCompiler {
             
             switch ($this.UndefinedBehavior) {
                 ([UndefinedBehavior]::Default) {
-                    # Jinja2 default: output empty string for undefined base or undefined property
+                    # Jinja2 default: empty string for undefined base or missing/null nested property
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
                     $this.AppendLine("if (`$__var_exists__) {")
                     $this.IndentLevel++
-                    $this.AppendLine("`$__value__ = $expression")
-                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.AppendLine("`$__value__ = `$null; `$__prop_found__ = `$false")
+                    $this.AppendLine("try { `$__value__ = $expression; `$__prop_found__ = `$true } catch {}")
+                    $this.AppendLine("if (`$__prop_found__ -and `$null -ne `$__value__) {")
                     $this.IndentLevel++
                     $this.OutputValue()
                     $this.IndentLevel--
@@ -3496,28 +3508,22 @@ class PowershellCompiler {
                     $this.AppendLine("}")
                 }
                 ([UndefinedBehavior]::Strict) {
-                    # Throw exception for undefined base variable or undefined property
+                    # Throw UndefinedError for undefined base or missing/null nested property (Jinja2)
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
-                    $this.AppendLine("if (-not `$__var_exists__) {")
-                    $this.IndentLevel++
-                    $this.AppendLine("throw `"UndefinedError: '$baseVarName' is undefined`"")
-                    $this.IndentLevel--
-                    $this.AppendLine("}")
-                    $this.AppendLine("`$__value__ = $expression")
-                    $this.AppendLine("if (`$null -eq `$__value__) {")
-                    $this.IndentLevel++
-                    $this.AppendLine("throw `"UndefinedError: property '$fullExpr' is undefined or null`"")
-                    $this.IndentLevel--
-                    $this.AppendLine("}")
+                    $this.AppendLine("if (-not `$__var_exists__) { throw `"UndefinedError: '$baseVarName' is undefined`" }")
+                    $this.AppendLine("`$__value__ = `$null")
+                    $this.AppendLine("try { `$__value__ = $expression } catch { throw `"UndefinedError: '$fullExpr' is undefined`" }")
+                    $this.AppendLine("if (`$null -eq `$__value__) { throw `"UndefinedError: '$fullExpr' is undefined`" }")
                     $this.OutputValue()
                 }
                 ([UndefinedBehavior]::Debug) {
-                    # Output placeholder for undefined base or undefined property
+                    # Output placeholder for undefined base or missing/null nested property
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
                     $this.AppendLine("if (`$__var_exists__) {")
                     $this.IndentLevel++
-                    $this.AppendLine("`$__value__ = $expression")
-                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.AppendLine("`$__value__ = `$null; `$__prop_found__ = `$false")
+                    $this.AppendLine("try { `$__value__ = $expression; `$__prop_found__ = `$true } catch {}")
+                    $this.AppendLine("if (`$__prop_found__ -and `$null -ne `$__value__) {")
                     $this.IndentLevel++
                     $this.OutputValue()
                     $this.IndentLevel--
@@ -3534,11 +3540,12 @@ class PowershellCompiler {
                     $this.AppendLine("}")
                 }
                 ([UndefinedBehavior]::Chainable) {
-                    # Allow chaining - output empty for undefined/null
+                    # Allow chaining - empty for undefined/null/missing nested property
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
                     $this.AppendLine("if (`$__var_exists__) {")
                     $this.IndentLevel++
-                    $this.AppendLine("`$__value__ = $expression")
+                    $this.AppendLine("`$__value__ = `$null")
+                    $this.AppendLine("try { `$__value__ = $expression } catch {}")
                     $this.AppendLine("if (`$null -ne `$__value__) {")
                     $this.IndentLevel++
                     $this.OutputValue()
@@ -3633,12 +3640,13 @@ class PowershellCompiler {
             
             switch ($this.UndefinedBehavior) {
                 ([UndefinedBehavior]::Default) {
-                    # Jinja2 default: output empty string for undefined base or undefined property
+                    # Jinja2 default: empty string for undefined base or missing/null nested property
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
                     $this.AppendLine("if (`$__var_exists__) {")
                     $this.IndentLevel++
-                    $this.AppendLine("`$__value__ = $expression")
-                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.AppendLine("`$__value__ = `$null; `$__prop_found__ = `$false")
+                    $this.AppendLine("try { `$__value__ = $expression; `$__prop_found__ = `$true } catch {}")
+                    $this.AppendLine("if (`$__prop_found__ -and `$null -ne `$__value__) {")
                     $this.IndentLevel++
                     $this.OutputValue()
                     $this.IndentLevel--
@@ -4307,7 +4315,7 @@ class PowershellCompiler {
                 throw "Unknown expression type: $($node.GetType().Name)"
             }
         }
-        return $null # only for PSScriptAnalyzer because it cannot understand derfault statement in switch
+        return $null # only for PSScriptAnalyzer because it cannot understand default statement in switch
     }
     
     [void]AppendLine() {
