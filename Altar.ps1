@@ -1082,6 +1082,20 @@ class PropertyAccessNode : ExpressionNode {
     }
 }
 
+# Represents a .NET instance method call on an object (e.g., "hello".ToUpper(), n.ToString())
+# Enables calling instance methods directly in templates using dot-notation
+class MethodCallNode : ExpressionNode {
+    [ExpressionNode]$Object       # The object whose method is being called
+    [string]$MethodName           # The name of the method to invoke
+    [ExpressionNode[]]$Arguments  # Arguments to pass to the method
+    
+    MethodCallNode([ExpressionNode]$object, [string]$methodName, [ExpressionNode[]]$arguments, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Object     = $object
+        $this.MethodName = $methodName
+        $this.Arguments  = $arguments
+    }
+}
+
 # Represents array/dictionary indexing expressions (e.g., array[0], dict['key'])
 # Allows accessing elements by index or key in the template
 class IndexAccessNode : ExpressionNode {
@@ -2882,9 +2896,27 @@ class Parser {
         while ($true) {
             if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ".")) {
                 $dotToken = $this.Consume()  # Consume the dot
-                $propertyToken = $this.Expect([TokenType]::IDENTIFIER)  # Expect property name
-                # Create a property access node
-                $expr = [PropertyAccessNode]::new($expr, $propertyToken.Value, $dotToken.Line, $dotToken.Column, $dotToken.Filename)
+                $nameToken = $this.Expect([TokenType]::IDENTIFIER)  # Expect property or method name
+                # If followed by "(" this is a method call, otherwise a property access
+                if ($this.MatchTypeValue([TokenType]::PUNCTUATION, "(")) {
+                    $this.Consume()  # Consume the opening parenthesis
+                    $methodArgs = [System.Collections.Generic.List[ExpressionNode]]::new()
+                    # Parse zero or more comma-separated arguments
+                    while (-not $this.MatchTypeValue([TokenType]::PUNCTUATION, ")")) {
+                        $methodArgs.Add($this.ParseConditional())
+                        if ($this.MatchTypeValue([TokenType]::PUNCTUATION, ",")) {
+                            $this.Consume()  # Consume the comma
+                        } else {
+                            break
+                        }
+                    }
+                    $this.Expect([TokenType]::PUNCTUATION, ")")  # Consume the closing parenthesis
+                    # Create a method call node
+                    $expr = [MethodCallNode]::new($expr, $nameToken.Value, $methodArgs.ToArray(), $dotToken.Line, $dotToken.Column, $dotToken.Filename)
+                } else {
+                    # Create a property access node
+                    $expr = [PropertyAccessNode]::new($expr, $nameToken.Value, $dotToken.Line, $dotToken.Column, $dotToken.Filename)
+                }
             }
             elseif ($this.MatchTypeValue([TokenType]::PUNCTUATION, "[")) {
                 $bracketToken = $this.Consume()  # Consume the opening bracket
@@ -4078,6 +4110,17 @@ class PowershellCompiler {
                 # then in parent scopes (context variables)
                 return "`$$($variable.Name)"
             }
+            "MethodCallNode" {
+                # Handle .NET instance method call (e.g., "hello".ToUpper(), n.ToString())
+                $methodCall = [MethodCallNode]$node
+                $object = $this.VisitExpression($methodCall.Object)
+                $argExprs = @()
+                foreach ($arg in $methodCall.Arguments) {
+                    $argExprs += $this.VisitExpression($arg)
+                }
+                $argsStr = $argExprs -join ", "
+                return "($object).$($methodCall.MethodName)($argsStr)"
+            }
             "PropertyAccessNode" {
                 $propAccess = [PropertyAccessNode]$node
                 $object = $this.VisitExpression($propAccess.Object)
@@ -4637,16 +4680,6 @@ class AltarFilters {
         $leftPadding = [Math]::Floor($totalPadding / 2)
         $rightPadding = $totalPadding - $leftPadding
         return (' ' * $leftPadding) + $value + (' ' * $rightPadding)
-    }
-    
-    # Left-justify string in a field of given width
-    static [string]Ljust([string]$value, [int]$width) {
-        return $value.PadRight($width)
-    }
-    
-    # Right-justify string in a field of given width
-    static [string]Rjust([string]$value, [int]$width) {
-        return $value.PadLeft($width)
     }
     
     # Reverse a string

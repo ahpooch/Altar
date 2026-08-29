@@ -129,22 +129,6 @@ Describe "String Filters" {
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
-    It "ljust filter should left-justify text" {
-        $template = '{{ "test" | ljust(10) }}'
-        $context = @{}
-        $result = Invoke-AltarTemplate -Template $template -Context $context
-        $result | Should -Be "test      "
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
-    }
-    
-    It "rjust filter should right-justify text" {
-        $template = '{{ "test" | rjust(10) }}'
-        $context = @{}
-        $result = Invoke-AltarTemplate -Template $template -Context $context
-        $result | Should -Be "      test"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
-    }
-    
     It "reverse filter should reverse string" {
         $template = '{{ "hello" | reverse }}'
         $context = @{}

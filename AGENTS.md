@@ -69,6 +69,7 @@ Altar/
 │   │   ├── IsTests.Tests.ps1
 │   │   ├── LineStatements.Tests.ps1
 │   │   ├── Macro.Tests.ps1
+│   │   ├── MethodCall.Tests.ps1
 │   │   ├── Raw.Tests.ps1
 │   │   ├── Self.Tests.ps1
 │   │   ├── Ternary.Tests.ps1
@@ -198,6 +199,7 @@ All classes are defined in `Altar.ps1` in the order shown below.
 | `SuperNode` | `super()` call inside an overridden block |
 | `SelfCallNode` | `self.blockname()` call |
 | `MacroCallNode` | Macro invocation with positional/named args |
+| `MethodCallNode` | .NET method call on a value (`"str".PadRight(10)`, `var.ToUpper()`) |
 | `TextNode` | Raw text pass-through |
 | `OutputNode` | `{{ expression }}` — evaluated and output |
 | `IfNode` | `{% if %}…{% elif %}…{% else %}…{% endif %}` |
@@ -327,6 +329,7 @@ $result = $engine.RenderFile('C:\templates\page.alt', $contextHashtable)
 | Array literals | `{% set a = [1, 2, 3] %}` | |
 | Import / from-import | `{% import "macros.alt" as m %}` | |
 | PowerShell block | `{% powershell %}…{% endpowershell %}` | Escape hatch |
+| .NET method calls | `{{ "str".PadRight(10) }}`, `{{ var.ToUpper() }}` | PowerShell/.NET extension — **not** Jinja2-compatible |
 
 ---
 
@@ -346,8 +349,6 @@ ScriptBlock — never call `AltarFilters` directly in templates.
 | `trim` | `(string)` | Strip leading/trailing whitespace |
 | `replace` | `(string, old, new[, count])` | Substring replacement, optional limit |
 | `center` | `(string, width)` | Center in field |
-| `ljust` | `(string, width)` | Left-justify |
-| `rjust` | `(string, width)` | Right-justify |
 | `reverse` | `(string)` | Reverse string |
 | `indent` | `(string[, width=4[, indentFirst=false]])` | Indent lines |
 | `striptags` | `(string)` | Remove HTML tags |
@@ -832,5 +833,5 @@ dynamically. Future Jinja2 upgrades are then automatically caught.
 
 ---
 
-*Last updated: 2026-08-28 | Maintained for the Altar project*
+*Last updated: 2026-08-29 | Maintained for the Altar project*
 
