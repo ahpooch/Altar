@@ -17,10 +17,12 @@
         "equalto",
         "filesizeformat",
         "Forceescape",
+        "getattr",
         "Groupby",
         "hashtable",
         "hashtables",
         "herro",
+        "isinstance",
         "killwords",
         "linecount",
         "ljust",
@@ -28,6 +30,7 @@
         "macroname",
         "myapp",
         "nafter",
+        "nana",
         "nhello",
         "nline",
         "normalisation",
@@ -35,6 +38,7 @@
         "normalised",
         "normalises",
         "olleh",
+        "pple",
         "Pprint",
         "pycache",
         "realname",
@@ -51,8 +55,10 @@
         "urlencode",
         "Urlize",
         "Venv",
+        "vocado",
         "wordcount",
         "wordwrap",
-        "xmlattr"
+        "xmlattr",
+        "Xnana"
     ]
 }

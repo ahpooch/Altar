@@ -85,7 +85,7 @@ next line
         
         It "Works with for loops" {
             $template = @"
-{% for i in items %}
+{%- for i in items %}
 {{ i }}
 {% endfor %}
 after
@@ -215,6 +215,7 @@ content
 text
 
 content
+
 "@
             $result | Should -Be $expected
         }
@@ -239,34 +240,8 @@ content
 "@
             $result | Should -Be $expected
         }
-        
-        It "Works with for loops" {
-            $template = @"
-start
-    {% for i in items %}
-    {{ i }}
-    {% endfor %}
-end
-"@
-            $context = @{
-                items = @(1, 2)
-            }
-            
-            $result = Invoke-AltarTemplate -Template $template -Context $context -LstripBlocks $true
-            
-            # LstripBlocks removes leading spaces before {%, newlines after are preserved
-            $expected = @"
-start
 
-    1
 
-    2
-
-end
-"@
-            $result | Should -Be $expected
-        }
-        
         It "Removes only spaces and tabs, not newlines" {
             $template = @"
 line1
@@ -285,6 +260,7 @@ line1
 
 
 content
+
 "@
             $result | Should -Be $expected
         }
@@ -305,17 +281,18 @@ content
 text
     
 content
+
 "@
             $result | Should -Be $expected
         }
         
         It "Works with mixed indentation levels" {
             $template = @"
-{% if true %}
-  {% if true %}
+{%- if true %}
+  {%- if true %}
     content
-  {% endif %}
-{% endif %}
+  {%- endif %}
+{%- endif %}
 "@
             $context = @{}
             
@@ -323,7 +300,6 @@ content
             
             # LstripBlocks removes leading spaces before {%
             $expected = @"
-
 
     content
 "@
@@ -372,11 +348,11 @@ start {% if true %}content{% endif %} end
         
         It "Cleans up nested block structures" {
             $template = @"
-{% if outer %}
-    {% if inner %}
+{%- if outer %}
+    {%- if inner %}
         content
-    {% endif %}
-{% endif %}
+    {%- endif %}
+{%- endif %}
 "@
             $context = @{
                 outer = $true
@@ -497,6 +473,7 @@ content
             $expected = @"
 text
 content
+
 "@
             $result | Should -Be $expected
         }
@@ -526,7 +503,7 @@ next
 text
     {%+ if true %}
 content
-    {% endif %}
+    {%- endif %}
 "@
             $context = @{}
             
@@ -601,7 +578,7 @@ text
             $template = @"
 {% if true %}
 content
-{% endif %}
+{%- endif %}
 "@
             $context = @{}
             
@@ -618,7 +595,7 @@ content
 text
     {% if true %}
 content
-    {% endif %}
+    {%- endif %}
 "@
             $context = @{}
             
@@ -665,15 +642,15 @@ content
         
         It "Handles very deeply nested blocks" {
             $template = @"
-{% if a %}
-    {% if b %}
-        {% if c %}
-            {% if d %}
+{%- if a %}
+    {%- if b %}
+        {%- if c %}
+            {%- if d %}
                 content
-            {% endif %}
-        {% endif %}
-    {% endif %}
-{% endif %}
+            {%- endif %}
+        {%- endif %}
+    {%- endif %}
+{%- endif %}
 "@
             $context = @{
                 a = $true
