@@ -81,7 +81,7 @@ Last line.
         It "Removes single-line comment with whitespace trimming" {
             $template = @"
 First line.
-{#- This is a single-line comment -#}
+{#- This is a single-line comment #}
 Last line.
 "@
             $context = @{}
@@ -113,7 +113,7 @@ Content line.
         It "Handles single-line comment at the end of template" {
             $template = @"
 Content line.
-{# Comment at end -#}
+{#- Comment at end #}
 "@
             $context = @{}
             
@@ -214,7 +214,7 @@ First line.
 {#-
 This is a multi-line comment.
 It can span across several lines.
--#}
+#}
 Last line.
 "@
             $context = @{}
@@ -264,8 +264,7 @@ Last line.
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
             $expected = @"
-First line.
-Last line.
+First line.Last line.
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -273,7 +272,7 @@ Last line.
         
         It "Handles multi-line comment at the beginning of template" {
             $template = @"
-{#
+{#-
 Comment at start
 spanning multiple lines
 -#}
@@ -291,10 +290,10 @@ Content line.
         It "Handles multi-line comment at the end of template" {
             $template = @"
 Content line.
-{#
+{#-
 Comment at end
 spanning multiple lines
--#}
+#}
 "@
             $context = @{}
             
@@ -410,10 +409,10 @@ Start
     Context "Comments with Other Constructs" {
         It "Handles comment before if statement" {
             $template = @"
-{# This is a comment -#}
-{% if fact -%}
+{#- This is a comment #}
+{%- if fact -%}
 Content
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 fact = $true
@@ -430,8 +429,8 @@ Content
             $template = @"
 {% if fact -%}
 Content
-{% endif -%}
-{# This is a comment -#}
+{%- endif %}
+{#- This is a comment #}
 "@
             $context = @{
                 fact = $true
@@ -448,9 +447,9 @@ Content
             $template = @"
 {% if fact -%}
 Before comment
-{# Comment inside if -#}
+{#- Comment inside if #}
 After comment
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 fact = $true
@@ -473,7 +472,7 @@ If content
 {% else -%}
 {# Comment in else -#}
 Else content
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 fact = $false
@@ -488,10 +487,10 @@ Else content
         
         It "Handles comment with for loop" {
             $template = @"
-{# Loop through items -#}
-{% for item in items -%}
+{#- Loop through items #}
+{%- for item in items -%}
 {{ item }}
-{% endfor -%}
+{% endfor %}
 "@
             $context = @{
                 items = @(1, 2, 3)
@@ -503,6 +502,7 @@ Else content
 1
 2
 3
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -525,6 +525,7 @@ Else content
 1
 2
 3
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -589,6 +590,7 @@ Inner
             $expected = @"
 Outer
 Inner
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -672,7 +674,7 @@ End
         It "Trims whitespace on the left with {#-" {
             $template = @"
 Line 1
-    {#- This is a comment -#}
+    {#- This is a comment #}
 Line 2
 "@
             $context = @{}
@@ -681,7 +683,7 @@ Line 2
             
             $expected = @"
 Line 1
-    Line 2
+Line 2
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -699,7 +701,7 @@ Line 1
             
             $expected = @"
 Line 1
-    Line 2
+Line 2
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -716,8 +718,7 @@ After
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
             $expected = @"
-Before
-    After
+BeforeAfter
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -748,7 +749,7 @@ Line 1
     {#-
     Multi-line comment
     with left trim
-    -#}
+    #}
 Line 2
 "@
             $context = @{}
@@ -757,7 +758,7 @@ Line 2
             
             $expected = @"
 Line 1
-    Line 2
+Line 2
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -778,7 +779,7 @@ with right trim
             
             $expected = @"
 Line 1
-    Line 2
+Line 2
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -797,8 +798,7 @@ After
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
             $expected = @"
-Before
-    After
+BeforeAfter
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result

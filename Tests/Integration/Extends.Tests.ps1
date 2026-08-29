@@ -48,7 +48,7 @@ First line.
 
 {% block title -%}Default title{% endblock -%}
 
-{% block content -%}
+{%- block content %}
   Default content.
 {% endblock -%}
 
@@ -63,7 +63,6 @@ First line.
 
 Default title
   Default content.
-
 Last line.
 "@
             $result | Should -Be $expected
@@ -126,7 +125,7 @@ After
 {% for item in items -%}
 - {{ item }}
 {% endfor -%}
-{% endblock -%}
+{% endblock %}
 "@
             $context = @{
                 items = @("Apple", "Banana", "Cherry")
@@ -138,6 +137,7 @@ After
 - Apple
 - Banana
 - Cherry
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result

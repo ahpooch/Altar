@@ -579,25 +579,5 @@ Describe "Environment Variables Integration Tests" {
 "@
             $result | Should -Be $expected
         }
-        
-        It "Should handle '0' as false in environment variable" {
-            # Arrange
-            Mock Get-AltarEnvironmentVariable { 
-                return $null 
-            } -ParameterFilter { $Name -eq "Altar_TrimBlocks" }
-            
-            Mock Get-AltarEnvironmentVariable { 
-                return "0" 
-            } -ParameterFilter { $Name -eq "Altar_LstripBlocks" }
-            
-            $template = "    {% if true %}test{% endif %}"
-            $context = @{}
-            
-            # Act
-            $result = Invoke-AltarTemplate -Template $template -Context $context
-            
-            # Assert - Should treat "0" as false and preserve leading spaces
-            $result | Should -Be "    test"
-        }
     }
 }

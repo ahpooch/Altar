@@ -489,12 +489,27 @@ class Lexer {
                     $state.States.Push("BLOCK")  # Switch to BLOCK state
                     return
                 }
-                # Comment tag: {# ... #}
+                # Comment tag: {# ... #} or {#- ... #} (with left whitespace trim)
                 '#' {
+                    # Check for whitespace trimming syntax: {#- ... #}
+                    $hasTrimBefore = $false
+                    if ($state.PeekOffset(2) -eq '-') {
+                        $hasTrimBefore = $true
+                        # Trim whitespace BEFORE adding the token (mirrors {%- behaviour)
+                        $this.TrimWhitespaceBefore($tokens)
+                    }
+
                     $state.CaptureStart()
                     $state.Consume()  # Consume '{'
                     $state.Consume()  # Consume '#'
-                    $tokens.Add([Token]::new([TokenType]::COMMENT_START, [Lexer]::COMMENT_START, $state.StartLine, $state.StartColumn, $state.Filename))
+
+                    if ($hasTrimBefore) {
+                        $state.Consume()  # Consume '-'
+                        $tokens.Add([Token]::new([TokenType]::COMMENT_START, '{#-', $state.StartLine, $state.StartColumn, $state.Filename))
+                    } else {
+                        $tokens.Add([Token]::new([TokenType]::COMMENT_START, [Lexer]::COMMENT_START, $state.StartLine, $state.StartColumn, $state.Filename))
+                    }
+
                     $state.States.Push("COMMENT")  # Switch to COMMENT state
                     return
                 }
@@ -5255,10 +5270,10 @@ class AltarFilters {
         return $value
     }
     
-    # Convert object to string
+    # Convert object to string — null maps to 'None' to match Jinja2/Python str(None)
     static [string]String([object]$value) {
         if ($null -eq $value) {
-            return ""
+            return "None"
         }
         return $value.ToString()
     }

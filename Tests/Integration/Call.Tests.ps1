@@ -59,7 +59,6 @@ Describe "Call Block Tests" -Tag 'Integration' {
             $context = @{}
             $engine = [TemplateEngine]::new()
             $result = $engine.Render($template, $context)
-
             $result | Should -Match '<div class="dialog">'
             $result | Should -Match '<h2>Hello World</h2>'
             $result | Should -Match 'This is a simple dialog\.'

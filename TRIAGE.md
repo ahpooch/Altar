@@ -1,6 +1,6 @@
 ## Failure Triage
 
-### Category A — Test code bug: `$context` undefined (Filters.Tests.ps1, ~35 failures)
+### FIXED!: Category A — Test code bug: `$context` undefined (Filters.Tests.ps1, ~35 failures)
 
 Every test that hits `Confirm-MatchesOracle -Context $context` but used `@{}` inline in `Invoke-AltarTemplate` instead of assigning `$context` first throws `RuntimeException: The variable '$context' cannot be retrieved`. The `Should -Be` assertion itself would pass; only the Oracle call crashes. Fix: add `$context = @{}` before each `Invoke-AltarTemplate` call in those tests.
 
@@ -38,15 +38,15 @@ Oracle returns `'\n\n\nHello, World!\n'`. Altar returns `'Hello, World!'`. Altar
 
 ## Fix Plan
 
-### Step 1 — Fix `Filters.Tests.ps1` (test-only, ~35 tests)
+### DONE: Step 1 — Fix `Filters.Tests.ps1` (test-only, ~35 tests)
 
 For every `It` block that uses `@{}` inline and then calls `Confirm-MatchesOracle -Context $context`, add `$context = @{}` as the first line of the `It` block. No Altar.ps1 change needed for this step.
 
-### Step 2 — Fix `Filters.Tests.ps1` null→string (Altar.ps1, 1 test)
+### TODO: Step 2 — Fix `Filters.Tests.ps1` null→string (Altar.ps1, 1 test)
 
 In `AltarFilters`, the `string` static method: add a `$null` guard that returns `'None'`.
 
-### Step 3 — Fix `For.Tests.ps1` and `If.Tests.ps1` expected values (test-only, ~20 tests)
+### IN PROCESS: Step 3 — Fix `For.Tests.ps1` and `If.Tests.ps1` expected values (test-only, ~20 tests)
 
 Audit each failing `$expected` string. For indentation cases, remove the spaces that `-%}` consumes. For trailing newline cases, add `\r\n` to `$expected` (or add `.TrimEnd()` to the assertion). Verify each corrected expected value matches Oracle output before finalizing.
 
