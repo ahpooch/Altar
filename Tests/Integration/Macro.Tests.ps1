@@ -1,15 +1,45 @@
-# Macro Tests for Macro functionality
+# Macro Tests for Macro functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
     }
 }
 
-Describe "Macro Tests" {
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
+    }
+}
+
+Describe "Macro Tests" -Tag 'Integration' {
     
     Context "Basic Macro Definition and Call" {
         It "Should define and call a simple macro" {
@@ -23,6 +53,7 @@ Hello, {{ name }}!
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Hello, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should call macro multiple times" {
@@ -54,6 +85,7 @@ Name: {{ name }}, Age: {{ age }}, City: {{ city }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Name: Alice, Age: 30, City: New York"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -69,6 +101,7 @@ Name: {{ name }}, Age: {{ age }}, City: {{ city }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Hello, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should override default parameter values" {
@@ -82,6 +115,7 @@ Name: {{ name }}, Age: {{ age }}, City: {{ city }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Hi, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -97,6 +131,7 @@ Name: {{ name }}, Age: {{ age }}, City: {{ city }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Name: Bob, Age: 25, City: Tokyo"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should mix positional and named arguments" {
@@ -110,6 +145,7 @@ Name: {{ name }}, Age: {{ age }}, City: {{ city }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Name: Charlie, Age: 35, City: London"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -163,6 +199,7 @@ Status: {{ status(true) }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "HELLO WORLD"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should use filters inside macro" {
@@ -176,6 +213,7 @@ Status: {{ status(true) }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "ALICE"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -195,6 +233,7 @@ Outer: {{ inner(text) }}
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Outer: [test]"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -212,6 +251,7 @@ User: {{ username }}
             }
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "User: JohnDoe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
 }

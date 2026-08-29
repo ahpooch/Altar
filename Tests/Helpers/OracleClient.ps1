@@ -43,7 +43,7 @@ Set-StrictMode -Version Latest
 # Module-level defaults
 # ---------------------------------------------------------------------------
 
-$script:OracleBaseUrl = 'http://localhost:5000'
+$script:OracleBaseUrl = 'http://127.0.0.1:5000'
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -83,7 +83,7 @@ function Start-OracleService {
         [string] $OracleRoot     = (Join-Path $PSScriptRoot '..\..\oracle')
     )
 
-    $script:OracleBaseUrl = "http://localhost:$Port"
+    $script:OracleBaseUrl = "http://127.0.0.1:$Port"
 
     # Resolve the venv Python binary (cross-platform)
     $venvDir    = Join-Path $OracleRoot '.venv'
@@ -166,7 +166,7 @@ function Test-OracleReady {
         [int] $Port           = 5000
     )
 
-    $url      = "http://localhost:$Port/health"
+    $url      = "http://127.0.0.1:$Port/health"
     $deadline = [datetime]::UtcNow.AddSeconds($TimeoutSeconds)
 
     while ([datetime]::UtcNow -lt $deadline) {

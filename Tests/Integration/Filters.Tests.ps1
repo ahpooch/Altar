@@ -1,12 +1,42 @@
-# Integration tests for filters functionality
+# Integration tests for filters functionality — enhanced with Jinja2 Oracle validation
 
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -16,6 +46,7 @@ Describe "String Filters" {
         $context = @{ value = 123 }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "123"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "string filter should convert boolean to string" {
@@ -23,6 +54,7 @@ Describe "String Filters" {
         $context = @{ value = $true }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "True"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "string filter should convert null to empty string" {
@@ -30,6 +62,7 @@ Describe "String Filters" {
         $context = @{ value = $null }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be ""
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "string filter should handle string input unchanged" {
@@ -37,72 +70,84 @@ Describe "String Filters" {
         $context = @{ value = "hello world" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "hello world"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "capitalize filter should capitalize first letter" {
         $template = '{{ "hello world" | capitalize }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "Hello world"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "upper filter should convert to uppercase" {
         $template = '{{ "hello world" | upper }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "HELLO WORLD"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "lower filter should convert to lowercase" {
         $template = '{{ "HELLO WORLD" | lower }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "hello world"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "title filter should convert to title case" {
         $template = '{{ "hello world" | title }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "Hello World"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "trim filter should remove whitespace" {
         $template = '{{ "  hello  " | trim }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "hello"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should replace substring" {
         $template = '{{ "hello world" | replace("world", "universe") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "hello universe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "center filter should center text" {
         $template = '{{ "test" | center(10) }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "   test   "
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "ljust filter should left-justify text" {
         $template = '{{ "test" | ljust(10) }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "test      "
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "rjust filter should right-justify text" {
         $template = '{{ "test" | rjust(10) }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "      test"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "reverse filter should reverse string" {
         $template = '{{ "hello" | reverse }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "olleh"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "striptags filter should remove HTML tags" {
         $template = '{{ "<p>Hello</p>" | striptags }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "Hello"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "truncate filter should truncate long text" {
@@ -115,6 +160,7 @@ Describe "String Filters" {
         $template = '{{ "This is a test" | wordcount }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "4"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "urlize filter should convert simple HTTP URL to link" {
@@ -172,6 +218,7 @@ Describe "String Filters" {
         $context = @{ text = "This is just plain text without any links" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "This is just plain text without any links"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "urlize filter should preserve surrounding text" {
@@ -186,6 +233,7 @@ Describe "String Filters" {
         $context = @{ text = "banana" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnXnX"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should replace only first occurrence with count=1" {
@@ -193,6 +241,7 @@ Describe "String Filters" {
         $context = @{ text = "banana" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnana"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should replace first two occurrences with count=2" {
@@ -200,6 +249,7 @@ Describe "String Filters" {
         $context = @{ text = "banana" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnXna"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should replace all when count exceeds occurrences" {
@@ -207,6 +257,7 @@ Describe "String Filters" {
         $context = @{ text = "banana" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnXnX"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should handle count=0 as replace all" {
@@ -214,6 +265,7 @@ Describe "String Filters" {
         $context = @{ text = "banana" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnXnX"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should handle negative count as replace all" {
@@ -221,6 +273,7 @@ Describe "String Filters" {
         $context = @{ text = "banana"; count = -1 }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "bXnXnX"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "replace filter should handle multi-character replacements with count" {
@@ -228,6 +281,7 @@ Describe "String Filters" {
         $context = @{ text = "Hello World Hello Universe" }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "Goodbye World Hello Universe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }
 
@@ -236,12 +290,14 @@ Describe "Escape Filters" {
         $template = '{{ "<script>alert(''xss'')</script>" | escape }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "urlencode filter should URL encode" {
         $template = '{{ "hello world" | urlencode }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "hello%20world"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }
 
@@ -250,60 +306,70 @@ Describe "List Filters" {
         $template = '{{ items | first }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3) }
         $result | Should -Be "1"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "last filter should get last element" {
         $template = '{{ items | last }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3) }
         $result | Should -Be "3"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "join filter should join array elements" {
         $template = '{{ items | join(", ") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @("a", "b", "c") }
         $result | Should -Be "a, b, c"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "length filter should get array length" {
         $template = '{{ items | length }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3) }
         $result | Should -Be "3"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "reverse filter should reverse array" {
         $template = '{{ items | reverse | join(",") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3) }
         $result | Should -Be "3,2,1"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "sort filter should sort array" {
         $template = '{{ items | sort | join(",") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(3, 1, 2) }
         $result | Should -Be "1,2,3"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "unique filter should get unique elements" {
         $template = '{{ items | unique | join(",") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 2, 3, 1) }
         $result | Should -Be "1,2,3"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "sum filter should sum numeric values" {
         $template = '{{ items | sum }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(1, 2, 3, 4, 5) }
         $result | Should -Be "15"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "min filter should get minimum value" {
         $template = '{{ items | min }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(5, 2, 8, 1, 9) }
         $result | Should -Be "1"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "max filter should get maximum value" {
         $template = '{{ items | max }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ items = @(5, 2, 8, 1, 9) }
         $result | Should -Be "9"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }
 
@@ -312,24 +378,28 @@ Describe "Number Filters" {
         $template = '{{ num | abs }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ num = -5 }
         $result | Should -Be "5"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "int filter should convert to integer" {
         $template = '{{ val | int }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ val = "42" }
         $result | Should -Be "42"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "float filter should convert to float" {
         $template = '{{ val | float }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ val = "3.14" }
         $result | Should -Be "3.14"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "round filter should round number" {
         $template = '{{ num | round(2) }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ num = 3.14159 }
         $result | Should -Be "3.14"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }
 
@@ -345,6 +415,7 @@ Describe "Dictionary Filters" {
         $template = '{{ dict | attr("name") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ dict = @{ name = "John"; age = 30 } }
         $result | Should -Be "John"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }
 
@@ -353,6 +424,7 @@ Describe "Conversion Filters" {
         $template = '{{ val | list | length }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ val = "hello" }
         $result | Should -Be "5"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "tojson filter should convert to JSON" {
@@ -368,12 +440,14 @@ Describe "Other Filters" {
         $template = '{{ val | default("N/A") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ val = $null }
         $result | Should -Be "N/A"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "default filter should not replace non-null value" {
         $template = '{{ val | default("N/A") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ val = "test" }
         $result | Should -Be "test"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "filesizeformat filter should format bytes" {
@@ -401,12 +475,14 @@ Describe "Filter Chaining" {
         $template = '{{ "  hello world  " | trim | upper | replace("WORLD", "UNIVERSE") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{}
         $result | Should -Be "HELLO UNIVERSE"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "should support filters with variables" {
         $template = '{{ name | upper | default("UNKNOWN") }}'
         $result = Invoke-AltarTemplate -Template $template -Context @{ name = "john" }
         $result | Should -Be "JOHN"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "should chain string filter with other filters" {
@@ -414,6 +490,7 @@ Describe "Filter Chaining" {
         $context = @{ value = 123 }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "123"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
     
     It "should chain urlize with other filters" {

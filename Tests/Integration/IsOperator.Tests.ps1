@@ -1,16 +1,46 @@
-# Integration tests for the 'is' operator
+# Integration tests for the 'is' operator — enhanced with Jinja2 Oracle validation
 
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
     }
 }
 
-Describe "Is Operator Tests" {
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
+    }
+}
+
+Describe "Is Operator Tests" -Tag 'Integration' {
     Context "Basic 'is defined' test" {
         It "Should return true when variable is defined" {
             $template = "{% if my_var is defined %}defined{% else %}not defined{% endif %}"
@@ -20,6 +50,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "defined"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should return false when variable is not defined" {
@@ -28,6 +59,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not defined"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'is not defined'" {
@@ -36,6 +68,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not defined"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -48,6 +81,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "is none"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should return false when variable is not null" {
@@ -58,6 +92,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not none"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'is null' (alias for 'is none')" {
@@ -68,6 +103,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "is null"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'is not none'" {
@@ -78,6 +114,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not none"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -90,6 +127,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "even"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should return false for odd numbers" {
@@ -100,6 +138,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "odd"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with zero" {
@@ -110,6 +149,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "even"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -122,6 +162,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "odd"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should return false for even numbers" {
@@ -132,6 +173,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "even"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -145,6 +187,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "both"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'or' operator" {
@@ -155,6 +198,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "at least one"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -171,6 +215,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "2,4,6,"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should filter odd numbers in a loop" {
@@ -185,6 +230,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "1,3,5,"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -197,6 +243,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Active"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'is even' in ternary" {
@@ -207,6 +254,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Even"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -220,6 +268,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "found and even"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -233,6 +282,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "defined"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should work with null values set in template" {
@@ -244,6 +294,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "is none"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -254,6 +305,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "yes"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is number'" {
@@ -262,6 +314,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "number"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is string'" {
@@ -270,6 +323,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "string"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is iterable'" {
@@ -278,6 +332,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "iterable"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is sequence'" {
@@ -286,6 +341,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "sequence"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is mapping'" {
@@ -294,6 +350,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "mapping"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is lower'" {
@@ -302,6 +359,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "lower"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is upper'" {
@@ -310,6 +368,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "upper"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should test 'is sameas'" {
@@ -318,6 +377,7 @@ Describe "Is Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "same"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }

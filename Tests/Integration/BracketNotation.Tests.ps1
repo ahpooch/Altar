@@ -4,10 +4,56 @@
 BeforeAll {
     # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
     
     # Mock environment variables to ensure test isolation
     Mock Get-AltarEnvironmentVariable { 
         return $null 
+    }
+
+    # ------------------------------------------------------------------
+    # Jinja2 Oracle lifecycle
+    # Start automatically; all tests degrade gracefully when unavailable.
+    # ------------------------------------------------------------------
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    # ------------------------------------------------------------------
+    # Confirm-MatchesOracle
+    #   Sends the same template+context to the reference Jinja2 service
+    #   and asserts that Altar's output is byte-for-byte identical.
+    #   Line endings are normalised to LF before comparison (Jinja2 always
+    #   returns LF; Altar on Windows may return CRLF — both are correct).
+    #   No-op when the oracle is not running.
+    # ------------------------------------------------------------------
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                         $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                            $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -25,6 +71,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "John Doe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should access hashtable property with bracket notation" {
@@ -37,6 +84,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "enabled"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should produce identical results for dot and bracket notation" {
@@ -49,6 +97,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Alice == Alice"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -66,6 +115,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Jane Smith"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should support mixed dot and bracket notation" {
@@ -80,6 +130,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Bob"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should support bracket then dot notation" {
@@ -94,6 +145,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "Charlie"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should handle deeply nested bracket notation" {
@@ -110,6 +162,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "deep value"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -125,6 +178,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "ALICE"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should chain multiple filters with bracket notation" {
@@ -137,6 +191,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "ECILA"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should apply filters to nested bracket notation" {
@@ -151,6 +206,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "John Doe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -164,6 +220,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "apple"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should support multiple numeric indices" {
@@ -174,6 +231,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "a, b, c"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should support nested array indexing" {
@@ -187,6 +245,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "2"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -206,6 +265,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Bob"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should support expression as index" {
@@ -216,6 +276,7 @@ Describe "Bracket Notation Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "c"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -237,6 +298,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "Active"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work in for loops" {
@@ -255,6 +317,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() -replace '\s+', ' ' | Should -Be "Item1 Item2 Item3"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with loop variable" {
@@ -272,6 +335,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() -replace '\s+', ' ' | Should -Be "1: A 2: B"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -287,6 +351,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Default
             $result | Should -Be ""
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result -UndefinedMode 'default'
         }
         
         It "Should throw in Strict mode for undefined property" {
@@ -298,6 +363,13 @@ Inactive
             }
             
             { Invoke-AltarTemplate -Template $template -Context $context -UndefinedBehavior Strict -ErrorAction Stop } | Should -Throw
+
+            # Oracle confirms Jinja2 StrictUndefined also raises UndefinedError
+            if ($script:OracleAvailable) {
+                $resp = Invoke-OracleRender -Template $template -Context $context -UndefinedMode 'strict' -AllowError
+                $resp.success   | Should -BeFalse  -Because 'Jinja2 StrictUndefined must raise UndefinedError'
+                $resp.exception | Should -Be 'UndefinedError'
+            }
         }
         
         It "Should show placeholder in Debug mode for undefined property" {
@@ -325,6 +397,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "value with spaces"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should handle property names with special characters" {
@@ -337,6 +410,7 @@ Inactive
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "hyphenated"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -358,6 +432,7 @@ Equal: {{ user.name == user['name'] }}
             $result | Should -Match "Dot: Test"
             $result | Should -Match "Bracket: Test"
             $result | Should -Match "Equal: True"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should produce identical results for nested access" {
@@ -372,6 +447,7 @@ Equal: {{ user.name == user['name'] }}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "True"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should produce identical results with filters" {
@@ -388,6 +464,7 @@ Equal: {{ user.name == user['name'] }}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "True"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }

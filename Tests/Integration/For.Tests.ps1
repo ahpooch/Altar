@@ -1,11 +1,41 @@
-# Integration tests for For block functionality
+# Integration tests for For block functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -38,6 +68,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Iterates over number array" {
@@ -60,6 +91,7 @@ Last line.
 5
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles empty array" {
@@ -81,6 +113,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Iterates over single element array" {
@@ -97,6 +130,7 @@ Item: {{ item }}
             
             $expected = "Item: only-one"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -123,6 +157,7 @@ B
 Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the right with -%}" {
@@ -146,6 +181,7 @@ Y
     End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on both sides" {
@@ -166,6 +202,7 @@ After
             # This creates a compact output with all items on same line
             $expected = "Before12After"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves content whitespace without trim markers" {
@@ -192,6 +229,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -212,6 +250,7 @@ No items found.
             
             $expected = "No items found."
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Does not execute else branch when array has items" {
@@ -233,6 +272,7 @@ No items found.
   - banana
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles else branch with whitespace trimming" {
@@ -255,6 +295,7 @@ Done
             # So everything gets compacted
             $expected = "List:    Empty listDone"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -286,6 +327,7 @@ Row:
   B2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles triple nested loops" {
@@ -317,6 +359,7 @@ Row:
 2-B-y
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -344,6 +387,7 @@ Small: 2
 Big: 9
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Uses filters inside for loop" {
@@ -364,6 +408,7 @@ BOB
 CHARLIE
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Combines multiple filters in for loop" {
@@ -383,6 +428,7 @@ HELLO
 WORLD
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -407,6 +453,7 @@ Name: Alice, Age: 30
 Name: Bob, Age: 25
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Iterates over array of PSCustomObjects" {
@@ -454,6 +501,7 @@ Name: Bob, Age: 25
 [C]
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles array with empty strings" {
@@ -474,6 +522,7 @@ Item: ""
 Item: "third"
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles special characters in array elements" {
@@ -495,6 +544,7 @@ x"y
 a'b
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles large array efficiently" {
@@ -559,6 +609,7 @@ a'b
 3
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Provides loop.index0 (0-based counter)" {
@@ -579,6 +630,7 @@ a'b
 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Provides loop.first flag" {
@@ -603,6 +655,7 @@ B
 C
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Provides loop.last flag" {
@@ -627,6 +680,7 @@ B
 LAST: C
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Provides loop.length" {
@@ -647,6 +701,7 @@ LAST: C
 3/3: C
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Combines all loop variables" {
@@ -667,6 +722,7 @@ LAST: C
 3. cherry (index0: 2, first: False, last: True, length: 3)
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with single item array" {
@@ -683,6 +739,7 @@ LAST: C
             
             $expected = "1/1: only-one (first: True, last: True)"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -729,6 +786,7 @@ LAST: C
             # PowerShell treats single values as arrays with one element
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "single string"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -755,6 +813,7 @@ LAST: C
 </ul>
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates table rows from data" {
@@ -790,6 +849,7 @@ LAST: C
 </table>
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates markdown list with else fallback" {
@@ -814,6 +874,7 @@ LAST: C
 *No items to display*
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -861,6 +922,7 @@ LAST: C
             
             # Both should produce the same output in Altar
             $resultWith.Trim() | Should -Be $resultWithout.Trim()
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Works with nested loops and scoped modifier" {

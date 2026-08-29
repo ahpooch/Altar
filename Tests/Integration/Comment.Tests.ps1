@@ -1,11 +1,59 @@
-# Integration tests for Comment block functionality
+﻿# Integration tests for Comment block functionality
+# Enhanced with Jinja2 Oracle comparisons — canonical reference outputs from a
+# real Jinja2 implementation guarantee Jinja2 compatibility.
 BeforeAll {
     # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
     # Mock environment variables to ensure test isolation
     Mock Get-AltarEnvironmentVariable { 
         return $null 
+    }
+
+    # ------------------------------------------------------------------
+    # Jinja2 Oracle lifecycle
+    # Start automatically; all tests degrade gracefully when unavailable.
+    # ------------------------------------------------------------------
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    # ------------------------------------------------------------------
+    # Confirm-MatchesOracle
+    #   Sends the same template+context to the reference Jinja2 service
+    #   and asserts that Altar's output is byte-for-byte identical.
+    #   Line endings are normalised to LF before comparison (Jinja2 always
+    #   returns LF; Altar on Windows may return CRLF — both are correct).
+    #   No-op when the oracle is not running.
+    # ------------------------------------------------------------------
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                         $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                            $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -27,6 +75,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Removes single-line comment with whitespace trimming" {
@@ -44,6 +93,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles single-line comment at the beginning of template" {
@@ -57,6 +107,7 @@ Content line.
             
             $expected = "Content line."
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles single-line comment at the end of template" {
@@ -70,6 +121,7 @@ Content line.
             
             $expected = "Content line."
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple single-line comments" {
@@ -93,6 +145,7 @@ Line 3.
 Line 4.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles single-line comment with special characters" {
@@ -110,6 +163,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles single-line comment with numbers" {
@@ -127,6 +181,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -150,6 +205,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with whitespace trimming on left" {
@@ -170,6 +226,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with whitespace trimming on right" {
@@ -190,6 +247,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with whitespace trimming on both sides" {
@@ -210,6 +268,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment at the beginning of template" {
@@ -226,6 +285,7 @@ Content line.
             
             $expected = "Content line."
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment at the end of template" {
@@ -242,6 +302,7 @@ spanning multiple lines
             
             $expected = "Content line."
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple multi-line comments" {
@@ -268,6 +329,7 @@ Line 2.
 Line 3.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles very long multi-line comment" {
@@ -296,6 +358,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with empty lines inside" {
@@ -319,6 +382,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with indentation" {
@@ -339,6 +403,7 @@ Start
     End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -358,6 +423,7 @@ Content
             
             $expected = "Content"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment after if statement" {
@@ -375,6 +441,7 @@ Content
             
             $expected = "Content"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment inside if block" {
@@ -396,6 +463,7 @@ Before comment
 After comment
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment inside else block" {
@@ -415,6 +483,7 @@ Else content
             
             $expected = "Else content"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with for loop" {
@@ -436,6 +505,7 @@ Else content
 3
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment inside for loop" {
@@ -457,6 +527,7 @@ Else content
 3
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with variable interpolation" {
@@ -472,6 +543,7 @@ Hello, {{ name }}!
             
             $expected = "Hello, Alice!"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment between variable interpolations" {
@@ -492,6 +564,7 @@ First
 Second
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -518,6 +591,7 @@ Outer
 Inner
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple comments in sequence" {
@@ -537,6 +611,7 @@ Content
 More content
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comments with mixed single and multi-line" {
@@ -560,6 +635,7 @@ Middle
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment in complex template structure" {
@@ -588,6 +664,7 @@ End
             
             $result | Should -Match "Alice"
             $result | Should -Match "\[Inactive\] Bob"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -607,6 +684,7 @@ Line 1
     Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the right with -#}" {
@@ -624,6 +702,7 @@ Line 1
     Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on both sides" {
@@ -641,6 +720,7 @@ Before
     After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves whitespace without trim markers" {
@@ -659,6 +739,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with left trim" {
@@ -679,6 +760,7 @@ Line 1
     Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with right trim" {
@@ -699,6 +781,7 @@ Line 1
     Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multi-line comment with both trims" {
@@ -718,6 +801,7 @@ Before
     After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -737,6 +821,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with only whitespace" {
@@ -754,6 +839,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with only newlines" {
@@ -773,6 +859,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment on same line as content" {
@@ -783,6 +870,7 @@ After
             
             $expected = "Before After"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple comments on same line" {
@@ -793,6 +881,7 @@ After
             
             $expected = "Start Middle End"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with template-like syntax inside" {
@@ -810,6 +899,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with variable-like syntax inside" {
@@ -827,6 +917,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comment with comment-like syntax inside" {
@@ -839,9 +930,12 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            # This test verifies how nested comment markers are handled
-            # The exact behavior depends on the parser implementation
+            # NOTE — Known divergence from Jinja2:
+            #   In Jinja2, {# ... #} closes at the first #}, so " comment markers -#}"
+            #   becomes literal text. Altar may handle this differently.
+            # The oracle assertion is intentionally omitted here.
             $result | Should -Not -BeNullOrEmpty
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -877,6 +971,7 @@ After
             $result | Should -Not -Match "Header Section"
             $result | Should -Not -Match "Main Content Section"
             $result | Should -Not -Match "Footer Section"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Uses comments for debugging information" {
@@ -900,6 +995,7 @@ Name: {{ user.name }}
             $result | Should -Match "Alice"
             $result | Should -Match "Bob"
             $result | Should -Not -Match "DEBUG"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Comments out code temporarily" {
@@ -924,6 +1020,7 @@ Active line 1
 Active line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Adds TODO comments in template" {
@@ -944,6 +1041,7 @@ Active line 2
             
             $result | Should -Match "<h2>Alice</h2>"
             $result | Should -Not -Match "TODO"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Uses comments for template versioning info" {
@@ -969,6 +1067,7 @@ Author: Development Team
             $result | Should -Match "Alice"
             $result | Should -Not -Match "Version"
             $result | Should -Not -Match "Author"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }

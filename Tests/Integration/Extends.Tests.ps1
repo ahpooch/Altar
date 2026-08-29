@@ -1,11 +1,41 @@
-# Integration tests for Extends Statement block functionality
+# Integration tests for Extends Statement block functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -37,6 +67,7 @@ Default title
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Renders base template with multiple blocks" {
@@ -51,6 +82,7 @@ Last line.
             
             $expected = "Default HeaderDefault BodyDefault Footer"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Renders base template with empty blocks" {
@@ -68,6 +100,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Renders base template with blocks containing variables" {
@@ -84,6 +117,7 @@ After
             
             $expected = "WelcomeHello World"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Renders base template with blocks containing control structures" {
@@ -106,6 +140,7 @@ After
 - Cherry
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     

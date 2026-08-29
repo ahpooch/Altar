@@ -1,11 +1,41 @@
-# Integration tests for the Ternary Operator functionality
+# Integration tests for the Ternary Operator functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -22,6 +52,7 @@ Result: {{ 'yes' if true else 'no' }}
             
             $expected = "Result: yes"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns false value when condition is false" {
@@ -34,6 +65,7 @@ Result: {{ 'yes' if false else 'no' }}
             
             $expected = "Result: no"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with variable in condition" {
@@ -48,6 +80,7 @@ Status: {{ 'Active' if is_active else 'Inactive' }}
             
             $expected = "Status: Active"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns else value when variable is false" {
@@ -62,6 +95,7 @@ Status: {{ 'Active' if is_active else 'Inactive' }}
             
             $expected = "Status: Inactive"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with comparison operators" {
@@ -76,6 +110,7 @@ Age group: {{ 'Adult' if age >= 18 else 'Minor' }}
             
             $expected = "Age group: Adult"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns else value when comparison is false" {
@@ -90,6 +125,7 @@ Age group: {{ 'Adult' if age >= 18 else 'Minor' }}
             
             $expected = "Age group: Minor"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -106,6 +142,7 @@ Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 els
             
             $expected = "Grade: A"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns second level in nested ternary" {
@@ -120,6 +157,7 @@ Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 els
             
             $expected = "Grade: B"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns third level in nested ternary" {
@@ -134,6 +172,7 @@ Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 els
             
             $expected = "Grade: C"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns final else value in nested ternary" {
@@ -148,6 +187,7 @@ Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 els
             
             $expected = "Grade: F"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles edge case at boundary" {
@@ -162,6 +202,7 @@ Grade: {{ 'A' if score >= 90 else 'B' if score >= 80 else 'C' if score >= 70 els
             
             $expected = "Grade: A"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -179,6 +220,7 @@ Name: {{ name | upper if show_uppercase else name | lower }}
             
             $expected = "Name: ALICE"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Applies filter to false value" {
@@ -194,6 +236,7 @@ Name: {{ name | upper if show_uppercase else name | lower }}
             
             $expected = "Name: alice"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with multiple filters on true branch" {
@@ -209,6 +252,7 @@ Name: {{ name | upper if show_uppercase else name | lower }}
             
             $expected = "HELLO"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with multiple filters on false branch" {
@@ -224,6 +268,7 @@ Name: {{ name | upper if show_uppercase else name | lower }}
             
             $expected = "hello"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -243,6 +288,7 @@ Access: {{ 'Granted' if user.role == 'admin' and user.active else 'Denied' }}
             
             $expected = "Access: Granted"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns false when AND condition fails" {
@@ -260,6 +306,7 @@ Access: {{ 'Granted' if user.role == 'admin' and user.active else 'Denied' }}
             
             $expected = "Access: Denied"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles logical OR in condition" {
@@ -275,6 +322,7 @@ Status: {{ 'Available' if is_online or is_away else 'Offline' }}
             
             $expected = "Status: Available"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple comparison operators" {
@@ -289,6 +337,7 @@ Result: {{ 'Valid' if value > 0 and value < 100 else 'Invalid' }}
             
             $expected = "Result: Valid"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles string equality in condition" {
@@ -303,6 +352,7 @@ Message: {{ 'Welcome!' if status == 'success' else 'Error occurred' }}
             
             $expected = "Message: Welcome!"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles inequality operator" {
@@ -318,6 +368,7 @@ Result: {{ 'Different' if a != b else 'Same' }}
             
             $expected = "Result: Different"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -338,6 +389,7 @@ Value: {{ obj.success_value if obj.is_success else obj.error_value }}
             
             $expected = "Value: Operation completed"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Accesses error property when condition is false" {
@@ -356,6 +408,7 @@ Value: {{ obj.success_value if obj.is_success else obj.error_value }}
             
             $expected = "Value: Operation failed"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with nested property access" {
@@ -375,6 +428,7 @@ Value: {{ obj.success_value if obj.is_success else obj.error_value }}
             
             $expected = "John Doe"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Returns else value with nested property access" {
@@ -394,6 +448,7 @@ Value: {{ obj.success_value if obj.is_success else obj.error_value }}
             
             $expected = "Guest"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -410,6 +465,7 @@ Count: {{ 100 if is_large else 10 }}
             
             $expected = "Count: 100"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with numeric comparisons" {
@@ -426,6 +482,7 @@ Price: {{ discounted_price if discount else price }}
             
             $expected = "Price: 90"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles zero values" {
@@ -441,6 +498,7 @@ Result: {{ 0 if reset else value }}
             
             $expected = "Result: 0"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles negative numbers" {
@@ -457,6 +515,7 @@ Balance: {{ debit_amount if is_debit else amount }}
             
             $expected = "Balance: -50"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -471,6 +530,7 @@ Result: {{ 'yes' if true else 'no' }}
             
             $expected = "Result: yes"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with whitespace trimming markers" {
@@ -489,6 +549,7 @@ value
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiline templates with ternary" {
@@ -509,6 +570,7 @@ Active
 Last line
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -525,6 +587,7 @@ Result: {{ 'has value' if has_value else 'no value' }}
             
             $expected = "Result: has value"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles explicit false condition" {
@@ -539,6 +602,7 @@ Result: {{ 'has text' if has_text else 'empty' }}
             
             $expected = "Result: empty"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles comparison with zero" {
@@ -553,6 +617,7 @@ Result: {{ 'non-zero' if count > 0 else 'zero' }}
             
             $expected = "Result: non-zero"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles defined variable in condition" {
@@ -567,6 +632,7 @@ Result: {{ 'defined' if defined_var else 'undefined' }}
             
             $expected = "Result: defined"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles boolean true literal" {
@@ -579,6 +645,7 @@ Result: {{ 'defined' if defined_var else 'undefined' }}
             
             $expected = "yes"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles boolean false literal" {
@@ -591,6 +658,7 @@ Result: {{ 'defined' if defined_var else 'undefined' }}
             
             $expected = "no"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -617,6 +685,7 @@ Item2: Inactive
 Item3: Active
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Works with if statement" {
@@ -634,6 +703,7 @@ Status: {{ 'Online' if is_online else 'Offline' }}
             
             $expected = "Status: Online"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Multiple ternaries in same line" {
@@ -649,6 +719,7 @@ Status: {{ 'Online' if is_online else 'Offline' }}
             
             $expected = "A and D"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Ternary with variable assignment result" {
@@ -673,6 +744,7 @@ Bob: User
 Charlie: Admin
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -715,6 +787,7 @@ Status: ✓ Pass
 Coverage: Good
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates conditional links" {
@@ -763,6 +836,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
             
             $expected = "Welcome back, Alice!"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates conditional icon display" {
@@ -787,6 +861,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
 ○ Deploy
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -803,6 +878,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
             
             $expected = "C"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles ternary with complex object navigation" {
@@ -821,6 +897,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
             
             $expected = "First result"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple ternaries in loop" {
@@ -845,6 +922,7 @@ B: No / On
 C: Yes / On
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }

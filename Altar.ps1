@@ -904,20 +904,16 @@ class Lexer {
         }
     }
     
-    # Trim whitespace after a tag when using the -%} syntax
-    # This consumes whitespace characters after the tag
+    # Trim whitespace after a tag when using the -}} or -%} syntax
+    # Jinja2 strips ALL contiguous whitespace (spaces, tabs, newlines) until the next non-whitespace character
     [void]TrimWhitespaceAfter([LexerState]$state) {
-        # Skip horizontal whitespace (spaces and tabs)
-        while (-not $state.IsEOF() -and ($state.Peek() -eq ' ' -or $state.Peek() -eq "`t")) {
-            $state.Consume()
-        }
-        
-        # If we encounter a newline, consume it (including \r if present)
-        if (-not $state.IsEOF() -and $state.Peek() -eq "`r") {
-            $state.Consume()
-        }
-        if (-not $state.IsEOF() -and $state.Peek() -eq "`n") {
-            $state.Consume()
+        while (-not $state.IsEOF()) {
+            $ch = $state.Peek()
+            if ($ch -eq ' ' -or $ch -eq "`t" -or $ch -eq "`r" -or $ch -eq "`n") {
+                $state.Consume()
+            } else {
+                break
+            }
         }
     }
     
@@ -2959,9 +2955,9 @@ class PowershellCompiler {
             $this.Visit($node)
         }
         
-        # Return the rendered output (trim trailing newline)
+        # Return the rendered output
         $this.AppendLine()
-        $this.AppendLine('return $output.ToString().TrimEnd("`r", "`n")')
+        $this.AppendLine('return $output.ToString()')
         
         return $this.Code.ToString()
     }
@@ -3675,8 +3671,9 @@ class PowershellCompiler {
                     $this.AppendLine("`$__var_exists__ = `$null -ne (Get-Variable -Name '$baseVarName' -ErrorAction SilentlyContinue)")
                     $this.AppendLine("if (`$__var_exists__) {")
                     $this.IndentLevel++
-                    $this.AppendLine("`$__value__ = $expression")
-                    $this.AppendLine("if (`$null -ne `$__value__) {")
+                    $this.AppendLine("`$__value__ = `$null; `$__prop_found__ = `$false")
+                    $this.AppendLine("try { `$__value__ = $expression; `$__prop_found__ = `$true } catch {}")
+                    $this.AppendLine("if (`$__prop_found__ -and `$null -ne `$__value__) {")
                     $this.IndentLevel++
                     $this.OutputValue()
                     $this.IndentLevel--

@@ -58,7 +58,6 @@ def _make_env(undefined_mode: str | None) -> Environment:
         lstrip_blocks=False,
         keep_trailing_newline=True,
         optimized=True,
-        enable_async=False,
     )
 
 
@@ -301,7 +300,6 @@ def environment():
             "newline_sequence":      env.newline_sequence,
             "keep_trailing_newline": env.keep_trailing_newline,
             "optimized":             env.optimized,
-            "enable_async":          env.enable_async,
         },
         "extensions": list(env.extensions.keys()),
         "filters":    sorted(env.filters.keys()),

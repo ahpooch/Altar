@@ -1,11 +1,41 @@
-# Integration tests for If block functionality
+# Integration tests for If block functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-  # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -36,6 +66,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Skips if block when condition is false" {
@@ -61,6 +92,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles if with variable comparison" {
@@ -77,6 +109,7 @@ Large count
             
             $expected = "Large count"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles if with string comparison" {
@@ -93,6 +126,7 @@ Hello Alice!
             
             $expected = "Hello Alice!"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -123,6 +157,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes else block when condition is false" {
@@ -151,6 +186,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles if-else with numeric comparison" {
@@ -169,6 +205,7 @@ Fail
             
             $expected = "Pass"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -203,6 +240,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes first elif block when if is false and elif is true" {
@@ -235,6 +273,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes second elif block when previous conditions are false" {
@@ -267,6 +306,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Skips all blocks when all conditions are false" {
@@ -298,6 +338,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -334,6 +375,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes first elif block when if is false and elif is true" {
@@ -368,6 +410,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes second elif block when previous conditions are false" {
@@ -402,6 +445,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Executes else block when all conditions are false" {
@@ -436,6 +480,7 @@ First line.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -460,6 +505,7 @@ Line 1Content
 Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the right with -%}" {
@@ -482,6 +528,7 @@ Content
     End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on both sides" {
@@ -502,6 +549,7 @@ After
             # This creates compact output
             $expected = "BeforeContentAfter"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves content whitespace without trim markers" {
@@ -526,6 +574,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -551,6 +600,7 @@ Outer is true
 Inner is also true
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles nested if-else statements" {
@@ -576,6 +626,7 @@ Outer false
 Outer true, inner false
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles triple nested if statements" {
@@ -604,6 +655,7 @@ L2
 L3
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -631,6 +683,7 @@ Small: 2
 Big: 9
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Uses filters inside if statement" {
@@ -647,6 +700,7 @@ Big: 9
             
             $expected = "ALICE"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Combines if with variable interpolation" {
@@ -668,6 +722,7 @@ Account inactive for {{ user.name }}
             
             $expected = "Welcome, Bob!"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -687,6 +742,7 @@ Both true
             
             $expected = "Both true"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles logical OR conditions" {
@@ -704,6 +760,7 @@ At least one true
             
             $expected = "At least one true"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles negation with comparison" {
@@ -720,6 +777,7 @@ Flag is false
             
             $expected = "Flag is false"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles inequality operators" {
@@ -736,6 +794,7 @@ Non-zero
             
             $expected = "Non-zero"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -756,6 +815,7 @@ No value
             
             $expected = "No value"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles empty string in conditions" {
@@ -774,6 +834,7 @@ Empty
             
             $expected = "Empty"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles zero in numeric conditions" {
@@ -792,6 +853,7 @@ Zero
             
             $expected = "Zero"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles undefined variables gracefully" {
@@ -808,6 +870,7 @@ Undefined
             
             $expected = "Undefined"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -890,6 +953,7 @@ C
 </div>
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates status messages based on conditions" {
@@ -912,6 +976,7 @@ C
             
             $expected = "⚠ Operation completed with warnings"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Generates conditional markdown content" {

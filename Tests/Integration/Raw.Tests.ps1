@@ -1,11 +1,41 @@
-# Integration tests for Raw block functionality
+# Integration tests for Raw block functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
+    }
+}
+
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
     }
 }
 
@@ -40,6 +70,7 @@ and they will be displayed as literal text.
 Last line.
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves variable syntax inside raw block" {
@@ -65,6 +96,7 @@ Last line.
 {{ object.property }}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves statement syntax inside raw block" {
@@ -88,6 +120,7 @@ Last line.
 {% endfor %}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves comment syntax inside raw block" {
@@ -113,6 +146,7 @@ Multi-line comment
 -#}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block at the beginning of template" {
@@ -135,6 +169,7 @@ Raw content at start
 Normal content
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block at the end of template" {
@@ -156,6 +191,7 @@ Raw content at end
 {{ variable }}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles empty raw block" {
@@ -174,6 +210,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block with only whitespace" {
@@ -192,6 +229,7 @@ Before
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -217,6 +255,7 @@ Raw content
 Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the right with -%}" {
@@ -238,6 +277,7 @@ Raw content
     Line 2
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on both sides of opening tag" {
@@ -259,6 +299,7 @@ BeforeRaw content
 After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the left of closing tag" {
@@ -281,6 +322,7 @@ Raw content
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on the right of closing tag" {
@@ -302,6 +344,7 @@ Raw content
     End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on both sides of closing tag" {
@@ -323,6 +366,7 @@ Raw content
     End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Trims whitespace on all tags" {
@@ -347,6 +391,7 @@ BeforeRaw content
     After
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves whitespace without trim markers" {
@@ -369,6 +414,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -401,6 +447,7 @@ Raw 2: {% if %}
 Last
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw blocks separated by processed content" {
@@ -428,6 +475,7 @@ PROCESSED
 {{ also_unprocessed }}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles three consecutive raw blocks" {
@@ -446,6 +494,7 @@ Block 2
 Block 3
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -469,6 +518,7 @@ Hello
 {{ unprocessed }}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Processes content after raw block" {
@@ -491,6 +541,7 @@ Hello
 Goodbye
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block between if statements" {
@@ -520,6 +571,7 @@ First
 Last
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block between for loops" {
@@ -551,6 +603,7 @@ Last
 4
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block with comments outside" {
@@ -570,6 +623,7 @@ Last
 {# This comment is preserved #}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -589,6 +643,7 @@ Special chars: @#$%^&*()[]{}|<>?/\~`!-+=_;:'"
 Special chars: @#$%^&*()[]{}|<>?/\~`!-+=_;:'"
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves numbers and operators" {
@@ -608,6 +663,7 @@ Math: 1 + 2 = 3
 Comparison: x > 5 && y < 10
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves indentation inside raw block" {
@@ -629,6 +685,7 @@ Comparison: x > 5 && y < 10
     Back to first indent
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves empty lines inside raw block" {
@@ -656,6 +713,7 @@ Line 3 (line 2 was empty)
 Line 6 (lines 4-5 were empty)
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves mixed Altar syntax" {
@@ -679,6 +737,7 @@ Comments: {# comment #}, {#- trimmed -#}
 Filters: {{ value | upper | trim }}
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves HTML/XML tags" {
@@ -706,6 +765,7 @@ Filters: {{ value | upper | trim }}
 </div>
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Preserves code snippets" {
@@ -733,6 +793,7 @@ function example() {
 }
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -745,6 +806,7 @@ function example() {
             
             $expected = "Before {{ var }} After"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles multiple raw blocks on same line" {
@@ -755,6 +817,7 @@ function example() {
             
             $expected = "{{ a }} middle {{ b }}"
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block with only newlines" {
@@ -777,6 +840,7 @@ Start
 End
 "@
             $result | Should -Be $expected
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles raw block containing endraw-like text" {

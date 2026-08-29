@@ -1,16 +1,46 @@
-# Integration tests for the 'in' operator
+# Integration tests for the 'in' operator — enhanced with Jinja2 Oracle validation
 
 BeforeAll {
-    # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"
+    . "$PSScriptRoot/../Helpers/OracleClient.ps1"
 
-    # Mock environment variables to ensure test isolation
-    Mock Get-AltarEnvironmentVariable { 
-        return $null 
+    Mock Get-AltarEnvironmentVariable { return $null }
+
+    $script:OracleAvailable = $false
+    $script:OracleProcess   = $null
+
+    try {
+        $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
+        $script:OracleAvailable = $true
+        $oraEnv = Get-OracleEnvironment
+        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
+    }
+
+    function script:Confirm-MatchesOracle {
+        param(
+            [Parameter(Mandatory)] [string]    $Template,
+            [hashtable]                        $Context       = @{},
+            [Parameter(Mandatory)] [AllowEmptyString()] [string] $AltarResult,
+            [string]                           $UndefinedMode = 'default'
+        )
+        if (-not $script:OracleAvailable) { return }
+
+        $oracle     = Invoke-OracleRender -Template $Template -Context $Context -UndefinedMode $UndefinedMode
+        $altarNorm  = $AltarResult -replace '\r\n', "`n" -replace '\r', "`n"
+        $oracleNorm = $oracle      -replace '\r\n', "`n" -replace '\r', "`n"
+        $altarNorm | Should -Be $oracleNorm -Because 'Altar output must match canonical Jinja2 rendering'
     }
 }
 
-Describe "In Operator Tests" {
+AfterAll {
+    if ($script:OracleAvailable -and $null -ne $script:OracleProcess) {
+        Stop-OracleService -Process $script:OracleProcess
+    }
+}
+
+Describe "In Operator Tests" -Tag 'Integration' {
     Context "Basic 'in' operator functionality" {
         It "Should return true when item is in array" {
             $template = "{% if 'apple' in fruits %}found{% else %}not found{% endif %}"
@@ -20,6 +50,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should return false when item is not in array" {
@@ -30,6 +61,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with numeric values" {
@@ -40,6 +72,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with variables on both sides" {
@@ -51,6 +84,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -63,6 +97,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "both"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'or' operator" {
@@ -73,6 +108,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "at least one"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -90,6 +126,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "apple,orange,"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -103,6 +140,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result.Trim() | Should -Be "found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }
     
@@ -115,6 +153,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "yes"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -127,6 +166,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "not found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should handle single-item arrays" {
@@ -137,6 +177,7 @@ Describe "In Operator Tests" {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "found"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }
