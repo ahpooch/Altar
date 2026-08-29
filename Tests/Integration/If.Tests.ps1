@@ -46,9 +46,9 @@ Describe 'If Statement Integration Tests' -Tag 'Integration' {
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% endif -%}
+{%- endif %}
   
 Last line.
 "@
@@ -60,7 +60,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact is true
   
 Last line.
@@ -73,9 +72,9 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% endif -%}
+{%- endif %}
   
 Last line.
 "@
@@ -87,7 +86,6 @@ Last line.
             
             $expected = @"
 First line.
-
   
 Last line.
 "@
@@ -97,9 +95,9 @@ Last line.
         
         It "Handles if with variable comparison" {
             $template = @"
-{% if count > 5 -%}
+{%- if count > 5 %}
 Large count
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 count = 10
@@ -107,16 +105,19 @@ Large count
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = "Large count"
+            $expected = @"
+
+Large count
+"@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Handles if with string comparison" {
             $template = @"
-{% if name == "Alice" -%}
+{%- if name == "Alice" %}
 Hello Alice!
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 name = "Alice"
@@ -124,7 +125,10 @@ Hello Alice!
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = "Hello Alice!"
+            $expected = @"
+
+Hello Alice!
+"@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
@@ -135,11 +139,11 @@ Hello Alice!
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% else -%}
+{%- else %}
   fact is false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -151,7 +155,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact is true
 
 Last line.
@@ -164,11 +167,11 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% else -%}
+{%- else %}
   fact is false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -180,7 +183,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact is false
 
 Last line.
@@ -191,11 +193,11 @@ Last line.
         
         It "Handles if-else with numeric comparison" {
             $template = @"
-{% if score >= 60 -%}
+{%- if score >= 60 %}
 Pass
-{% else -%}
+{%- else %}
 Fail
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 score = 75
@@ -203,7 +205,10 @@ Fail
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = "Pass"
+            $expected = @"
+
+Pass
+"@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
@@ -214,13 +219,13 @@ Fail
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -234,7 +239,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact is true
 
 Last line.
@@ -247,13 +251,13 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -267,7 +271,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact2 is true
 
 Last line.
@@ -280,13 +283,13 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -300,7 +303,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact3 is true
 
 Last line.
@@ -313,13 +315,13 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -333,7 +335,6 @@ Last line.
             
             $expected = @"
 First line.
-
 
 Last line.
 "@
@@ -347,15 +348,15 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% else -%}
+{%- else %}
   all facts are false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -369,7 +370,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact is true
 
 Last line.
@@ -382,15 +382,15 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% else -%}
+{%- else %}
   all facts are false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -404,7 +404,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact2 is true
 
 Last line.
@@ -417,15 +416,15 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% else -%}
+{%- else %}
   all facts are false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -439,7 +438,6 @@ Last line.
             
             $expected = @"
 First line.
-
   fact3 is true
 
 Last line.
@@ -452,15 +450,15 @@ Last line.
             $template = @"
 First line.
 
-{% if fact -%}
+{%- if fact %}
   fact is true
-{% elif fact2 -%}
+{%- elif fact2 %}
   fact2 is true
-{% elif fact3 -%}
+{%- elif fact3 %}
   fact3 is true
-{% else -%}
+{%- else %}
   all facts are false
-{% endif -%}
+{%- endif %}
 
 Last line.
 "@
@@ -474,7 +472,6 @@ Last line.
             
             $expected = @"
 First line.
-
   all facts are false
 
 Last line.
@@ -525,7 +522,7 @@ Content
             $expected = @"
 Start
 Content
-    End
+End
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -598,6 +595,7 @@ Inner is also true
             $expected = @"
 Outer is true
 Inner is also true
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -624,6 +622,7 @@ Outer false
             
             $expected = @"
 Outer true, inner false
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -653,6 +652,7 @@ L3
 L1
 L2
 L3
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -662,13 +662,13 @@ L3
     Context "Integration with Other Constructs" {
         It "Combines if statement with for loop" {
             $template = @"
-{% for item in items -%}
-{% if item > 5 -%}
+{%- for item in items %}
+{%- if item > 5 %}
 Big: {{ item }}
 {% else -%}
 Small: {{ item }}
-{% endif -%}
-{% endfor -%}
+{%- endif -%}
+{%- endfor -%}
 "@
             $context = @{
                 items = @(3, 7, 2, 9)
@@ -681,6 +681,7 @@ Small: 3
 Big: 7
 Small: 2
 Big: 9
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -690,7 +691,7 @@ Big: 9
             $template = @"
 {% if name -%}
 {{ name | upper }}
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 name = "alice"
@@ -707,9 +708,9 @@ Big: 9
             $template = @"
 {% if user.active -%}
 Welcome, {{ user.name }}!
-{% else -%}
+{%- else -%}
 Account inactive for {{ user.name }}
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 user = @{
@@ -731,7 +732,7 @@ Account inactive for {{ user.name }}
             $template = @"
 {% if a and b -%}
 Both true
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 a = $true
@@ -749,7 +750,7 @@ Both true
             $template = @"
 {% if a or b -%}
 At least one true
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 a = $false
@@ -767,7 +768,7 @@ At least one true
             $template = @"
 {% if flag == false -%}
 Flag is false
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 flag = $false
@@ -784,7 +785,7 @@ Flag is false
             $template = @"
 {% if value != 0 -%}
 Non-zero
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 value = 5
@@ -805,7 +806,7 @@ Non-zero
 Has value
 {% else -%}
 No value
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 value = $null
@@ -824,7 +825,7 @@ No value
 Has text
 {% else -%}
 Empty
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 text = ""
@@ -843,7 +844,7 @@ Empty
 Non-zero
 {% else -%}
 Zero
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 count = 0
@@ -862,9 +863,9 @@ Zero
 Defined
 {% else -%}
 Undefined
-{% endif -%}
+{%- endif -%}
 "@
-            $context = @{}
+            $context = @{ }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
@@ -927,14 +928,14 @@ C
         It "Generates conditional HTML content" {
             $template = @"
 <div>
-{% if user.is_admin -%}
+{%- if user.is_admin %}
   <button>Admin Panel</button>
-{% endif -%}
-{% if user.is_logged_in -%}
+{%- endif %}
+{%- if user.is_logged_in %}
   <a href="/logout">Logout</a>
-{% else -%}
+{%- else %}
   <a href="/login">Login</a>
-{% endif -%}
+{%- endif %}
 </div>
 "@
             $context = @{
@@ -958,15 +959,15 @@ C
         
         It "Generates status messages based on conditions" {
             $template = @"
-{% if status == "success" -%}
+{%- if status == "success" %}
 ✓ Operation completed successfully
-{% elif status == "warning" -%}
+{%- elif status == "warning" %}
 ⚠ Operation completed with warnings
-{% elif status == "error" -%}
+{%- elif status == "error" %}
 ✗ Operation failed
-{% else -%}
+{%- else %}
 ? Unknown status
-{% endif -%}
+{%- endif %}
 "@
             $context = @{
                 status = "warning"
@@ -974,7 +975,10 @@ C
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = "⚠ Operation completed with warnings"
+            $expected = @"
+
+⚠ Operation completed with warnings
+"@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }

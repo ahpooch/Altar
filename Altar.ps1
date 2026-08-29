@@ -3757,9 +3757,33 @@ class PowershellCompiler {
         }
     }
     
+    # Emit a safe condition expression that is resilient to undefined variables.
+    # In Default/Debug/Chainable mode (Jinja2 default): wrap the expression in an
+    # inline subexpression $(try { [bool](...) } catch { $false }) so that any
+    # RuntimeException caused by an undeclared variable (raised by Set-StrictMode
+    # -Version Latest in the test harness or caller's scope) is treated as $false
+    # — matching Jinja2's Undefined.__bool__ = False.
+    # This must NOT call AppendLine: the method returns a pure expression string
+    # so it is safe to use both in "if (...)" and "} elseif (...)" positions
+    # without any risk of the guard code being emitted inside the wrong block.
+    # In Strict mode: emit the raw expression so that accessing an undeclared
+    # variable propagates the error, matching Jinja2's StrictUndefined behaviour.
+    [string]EmitCondition([string]$conditionExpr) {
+        if ($this.UndefinedBehavior -eq [UndefinedBehavior]::Strict) {
+            # Strict: bare expression — undefined variable access will throw
+            return $conditionExpr
+        }
+        # Default / Debug / Chainable: inline subexpression guard.
+        # The backtick-$ produces a literal '$' so the generated code contains
+        # the literal text: $(try { [bool](<conditionExpr>) } catch { $false })
+        # which PowerShell evaluates inline as the if/elseif predicate.
+        return "`$(try { [bool]($conditionExpr) } catch { `$false })"
+    }
+
     [void]VisitIf([IfNode]$node) {
         $condition = $this.VisitExpression($node.Condition)
-        $this.AppendLine("if ($condition) {")
+        $safeCondition = $this.EmitCondition($condition)
+        $this.AppendLine("if ($safeCondition) {")
         $this.IndentLevel++
         
         foreach ($statement in $node.ThenBranch) {
@@ -3773,7 +3797,8 @@ class PowershellCompiler {
         
         while ($null -ne $currentNode.ElifBranch) {
             $elifCondition = $this.VisitExpression($currentNode.ElifBranch.Condition)
-            $this.AppendLine("} elseif ($elifCondition) {")
+            $safeElifCondition = $this.EmitCondition($elifCondition)
+            $this.AppendLine("} elseif ($safeElifCondition) {")
             $this.IndentLevel++
             
             foreach ($statement in $currentNode.ElifBranch.ThenBranch) {

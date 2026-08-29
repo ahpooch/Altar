@@ -65,7 +65,9 @@ This is included content.
             # The -%} trims the newline after the included content
             $expected = @"
 First line.
-This is included content.Last line.
+This is included content.
+Last line.
+
 "@
             $result | Should -Be $expected
             
@@ -90,7 +92,10 @@ Included with double quotes.
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Included with double quotes."
+            $expected = @"
+Included with double quotes.
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -98,23 +103,25 @@ Included with double quotes.
         
         It "Includes multiple files in sequence" {
             $template = @"
-{% include 'first.alt' -%}
-{% include 'second.alt' -%}
-{% include 'third.alt' -%}
+{%- include 'first.alt' -%}
+{%- include 'second.alt' -%}
+{%- include 'third.alt' -%}
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
             
             $mainPath = Join-Path $tempDir "main.alt"
             Set-Content -Path $mainPath -Value $template
-            Set-Content -Path (Join-Path $tempDir "first.alt") -Value "First"
-            Set-Content -Path (Join-Path $tempDir "second.alt") -Value "Second"
-            Set-Content -Path (Join-Path $tempDir "third.alt") -Value "Third"
+            Set-Content -Path (Join-Path $tempDir "first.alt") -Value "First{#- -#}"
+            Set-Content -Path (Join-Path $tempDir "second.alt") -Value "Second{#- -#}"
+            Set-Content -Path (Join-Path $tempDir "third.alt") -Value "Third{#- -#}"
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
             # The -%} trims newlines after each include
-            $expected = "FirstSecondThird"
+            $expected = @"
+FirstSecondThird
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -141,7 +148,10 @@ Content from subdirectory
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Content from subdirectory"
+            $expected = @"
+Content from subdirectory
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -185,7 +195,10 @@ Hello, {{ name }}!
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Hello, World!"
+            $expected = @"
+Hello, World!
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -218,6 +231,7 @@ Content: {{ content }}
             $expected = @"
 User: Alice
 Content: Test Content
+
 "@
             $result | Should -Be $expected
             
@@ -243,6 +257,7 @@ After
             $expected = @"
 Before
 After
+
 "@
             $result | Should -Be $expected
             
@@ -283,7 +298,10 @@ After
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Found the existing file!"
+            $expected = @"
+Found the existing file!
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -303,7 +321,10 @@ After
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "First file"
+            $expected = @"
+First file
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -326,6 +347,7 @@ After
             $expected = @"
 Before
 After
+
 "@
             $result | Should -Be $expected
             
@@ -365,7 +387,10 @@ After
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Nested file from array"
+            $expected = @"
+Nested file from array
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -381,6 +406,7 @@ After
 "@
             $includedFile = @"
 Included
+{#- This comment is used to remove trailing newline from included file -#}
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -393,10 +419,10 @@ Included
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            # The -%} trims the newline after included content
             $expected = @"
 Before
 IncludedAfter
+
 "@
             $result | Should -Be $expected
             
@@ -411,6 +437,7 @@ After
 "@
             $includedFile = @"
 Included
+{#- This comment is used to remove trailing newline from included file -#}
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -427,6 +454,7 @@ Included
             $expected = @"
 BeforeIncluded
 After
+
 "@
             $result | Should -Be $expected
             
@@ -441,6 +469,7 @@ After
 "@
             $includedFile = @"
 Included
+{#- This comment is used to remove trailing newline from included file -#}
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -453,9 +482,10 @@ Included
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            # {%- removes whitespace before, -%} removes whitespace after
-            # This creates compact output
-            $expected = "BeforeIncludedAfter"
+            $expected = @"
+BeforeIncludedAfter
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -492,6 +522,7 @@ Level 2
 Main
 Level 1
 Level 2
+
 "@
             $result | Should -Be $expected
             
@@ -500,11 +531,11 @@ Level 2
         
         It "Passes variables through nested includes" {
             $mainTemplate = @"
-{% set value = "Test" -%}
-{% include 'level1.alt' -%}
+{%- set value = "Test" -%}
+{%- include 'level1.alt' -%}
 "@
             $level1Template = @"
-{% include 'level2.alt' -%}
+{%- include 'level2.alt' -%}
 "@
             $level2Template = @"
 Value: {{ value }}
@@ -522,7 +553,10 @@ Value: {{ value }}
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Value: Test"
+            $expected = @"
+Value: Test
+
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -536,9 +570,9 @@ Value: {{ value }}
 {% include 'conditional.alt' -%}
 "@
             $includedFile = @"
-{% if showMessage -%}
+{%- if showMessage -%}
 Message shown
-{% endif -%}
+{%- endif -%}
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -551,7 +585,9 @@ Message shown
             
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
-            $expected = "Message shown"
+            $expected = @"
+Message shown
+"@
             $result | Should -Be $expected
             
             Remove-Item -Path $tempDir -Recurse -Force
@@ -582,6 +618,7 @@ Message shown
 - A
 - B
 - C
+
 "@
             $result | Should -Be $expected
             
@@ -592,10 +629,10 @@ Message shown
     Context "Include with Comments" {
         It "Processes comments in included file" {
             $template = @"
-{% include 'commented.alt' -%}
+{%- include 'commented.alt' -%}
 "@
             $includedFile = @"
-{# This is a comment #}
+{#- This is a comment -#}
 Visible content
 "@
             $tempDir = Join-Path $env:TEMP "AltarTests_Include_$(Get-Random)"
@@ -610,7 +647,10 @@ Visible content
             $result = Invoke-AltarTemplate -Path $mainPath -Context @{}
             
             # Comment leaves a newline
-            $expected = "`r`nVisible content"
+            $expected = @"
+Visible content
+
+"@
             $result | Should -Be $expected
             $result | Should -Not -BeLike "*This is a comment*"
             
@@ -646,8 +686,10 @@ Main content here
             
             # The -%} after header trims the newline
             $expected = @"
-<header>Site Header</header>Main content here
+<header>Site Header</header>
+Main content here
 <footer>Site Footer</footer>
+
 "@
             $result | Should -Be $expected
             
