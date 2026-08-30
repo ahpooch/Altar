@@ -833,6 +833,13 @@ $result = Invoke-OracleRender -Template '{{ your | filter }}' -Context @{ your =
 Do not hard-code expected values when `Confirm-MatchesOracle` can verify them
 dynamically. Future Jinja2 upgrades are then automatically caught.
 
+### ⑩ Intentional Jinja2 divergences — do not "fix" these
+Some Altar behaviours differ from Jinja2 by design, not by accident. Before
+attempting to align Altar with Jinja2 on any edge case, consult
+`Docs/Jinja2Compatibility.md`. Key example: blocks always have access to outer-scope
+variables in Altar (PowerShell dynamic scoping), whereas Jinja2 requires the
+`scoped` modifier for this. The `scoped` syntax is accepted but is a no-op.
+
 ---
 
 *Last updated: 2026-08-30 | Maintained for the Altar project*
