@@ -1,6 +1,7 @@
 ﻿# Integration tests for Comment block functionality
 # Enhanced with Jinja2 Oracle comparisons — canonical reference outputs from a
 # real Jinja2 implementation guarantee Jinja2 compatibility.
+
 BeforeAll {
     # Load the Altar template engine
     . "$PSScriptRoot/../../Altar.ps1"

@@ -1,4 +1,5 @@
 ﻿# Integration tests for Extends Statement block functionality — enhanced with Jinja2 Oracle validation
+
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"
     . "$PSScriptRoot/../Helpers/OracleClient.ps1"
