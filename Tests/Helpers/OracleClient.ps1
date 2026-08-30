@@ -7,15 +7,16 @@
     Designed to be dot-sourced in Pester test files.
 
     Functions:
-        Start-OracleService    — Start the oracle process in the background
-        Stop-OracleService     — Stop the oracle process
-        Test-OracleReady       — Wait until /health returns 200
-        Invoke-OracleRender    — POST /render
-        Invoke-OracleBatch     — POST /batch
-        Invoke-OracleParse     — POST /parse
-        Invoke-OracleValidate  — POST /validate
-        Get-OracleEnvironment  — GET /environment
-        Get-OracleCapabilities — GET /capabilities
+        Start-OracleService       - Start the oracle process (no-op if already running on port)
+        Stop-OracleService        - Stop the oracle process by Process object ($null-safe)
+        Stop-OracleServiceOnPort  - Stop the oracle process by port number (no Process ref needed)
+        Test-OracleReady          - Wait until /health returns 200
+        Invoke-OracleRender    - POST /render
+        Invoke-OracleBatch     - POST /batch
+        Invoke-OracleParse     - POST /parse
+        Invoke-OracleValidate  - POST /validate
+        Get-OracleEnvironment  - GET /environment
+        Get-OracleCapabilities - GET /capabilities
 
 .EXAMPLE
     # In a Pester describe block:
@@ -82,9 +83,15 @@ function Start-OracleService {
         Start the Jinja2 Oracle Service as a background process.
 
     .DESCRIPTION
-        Runs oracle/setup.ps1 -Start (which uses the .venv Python) and waits
-        until the /health endpoint responds. Returns the Process object so
-        the caller can pass it to Stop-OracleService.
+        Checks whether the oracle is already listening on the given port.
+        If it is, returns $null immediately (no-op -- the caller's AfterAll
+        should pass $null to Stop-OracleService, which is also a no-op).
+        If it is not, starts a new background process using the .venv Python
+        and waits until /health responds.
+
+        This makes it safe to call Start-OracleService in every test file's
+        BeforeAll: only the first file actually launches the process; all
+        subsequent files reuse the already-running instance.
 
     .PARAMETER Port
         Port to start the service on. Default: 5000.
@@ -96,11 +103,15 @@ function Start-OracleService {
         Path to the oracle/ directory. Defaults to <repo-root>/oracle.
 
     .OUTPUTS
-        System.Diagnostics.Process
+        System.Diagnostics.Process - the new process, or $null if Oracle was
+        already running and no new process was started.
 
     .EXAMPLE
-        $script:Oracle = Start-OracleService
-        $script:Oracle = Start-OracleService -Port 8080
+        $script:OracleProcess = Start-OracleService -TimeoutSeconds 20
+        # Returns a Process when it starts a new instance; $null otherwise.
+
+    .EXAMPLE
+        $script:OracleProcess = Start-OracleService -Port 8080
     #>
     [CmdletBinding()]
     [OutputType([System.Diagnostics.Process])]
@@ -112,8 +123,15 @@ function Start-OracleService {
 
     $script:OracleBaseUrl = "http://127.0.0.1:$Port"
 
+    # If Oracle is already answering on this port, reuse it - return $null so
+    # the caller's AfterAll no-ops through Stop-OracleService.
+    if (Test-OracleReady -TimeoutSeconds 2 -Port $Port) {
+        Write-Verbose "Oracle already running on port $Port - reusing existing instance."
+        return $null
+    }
+
     # Resolve the venv Python binary (cross-platform)
-    # Note: Join-Path with 3 arguments is PS 6+ only — use nested calls for PS 5.1 compat.
+    # Note: Join-Path with 3 arguments is PS 6+ only - use nested calls for PS 5.1 compat.
     $venvDir    = Join-Path $OracleRoot '.venv'
     $venvPython = if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.Platform -eq 'Win32NT') {
         Join-Path (Join-Path $venvDir 'Scripts') 'python.exe'
@@ -126,18 +144,24 @@ function Start-OracleService {
     if (-not (Test-Path $venvPython)) {
         Write-Verbose "Oracle venv not found. Running setup..."
         $setupScript = Join-Path $OracleRoot 'setup.ps1'
-        # Use the correct PowerShell host — pwsh (PS7+) or powershell.exe (PS5.1)
+        # Use the correct PowerShell host - pwsh (PS7+) or powershell.exe (PS5.1)
         $psExe = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'powershell' } else { 'pwsh' }
         & $psExe -File $setupScript
     }
 
     Write-Verbose "Starting oracle on port $Port..."
-    # -NoNewWindow runs the process in the current console without a new window.
-    # Start-Process -PassThru always returns immediately (non-blocking).
+    # -NoNewWindow is required on Windows for -Redirect* parameters to work.
+    # Redirecting stdout and stderr to separate temp files silences Flask's
+    # per-request access log so it does not bleed into the Pester console.
+    # (Windows does not allow both streams to redirect to the same path, even 'NUL'.)
+    $stdoutLog = [System.IO.Path]::GetTempFileName()
+    $stderrLog = [System.IO.Path]::GetTempFileName()
     $proc = Start-Process -FilePath  $venvPython `
                           -ArgumentList $appPath, $Port `
                           -PassThru `
-                          -NoNewWindow
+                          -NoNewWindow `
+                          -RedirectStandardOutput $stdoutLog `
+                          -RedirectStandardError  $stderrLog
 
     # Wait until /health is reachable
     if (-not (Test-OracleReady -TimeoutSeconds $TimeoutSeconds -Port $Port)) {
@@ -164,12 +188,59 @@ function Stop-OracleService {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
+        [AllowNull()]
         [System.Diagnostics.Process] $Process
     )
+
+    # $null is returned by Start-OracleService when Oracle was already running.
+    # In that case this is a deliberate no-op -- do not stop a shared instance.
+    if ($null -eq $Process) { return }
 
     if (-not $Process.HasExited) {
         $Process | Stop-Process -Force -ErrorAction SilentlyContinue
         Write-Verbose "Oracle service stopped (PID $($Process.Id))."
+    }
+}
+
+
+function Stop-OracleServiceOnPort {
+    <#
+    .SYNOPSIS
+        Stop the Jinja2 Oracle Service by port number.
+
+    .DESCRIPTION
+        Finds the process listening on the given TCP port and terminates it.
+        Use this when you do not have a Process object reference -- for example
+        in the ZZ_OracleTeardown.Tests.ps1 fixture, which runs in a different
+        scope than the file that originally started Oracle.
+
+        Falls back gracefully if no process is found on that port.
+
+    .PARAMETER Port
+        The TCP port to look up. Default: 5000.
+
+    .EXAMPLE
+        Stop-OracleServiceOnPort        # stops whatever is on :5000
+        Stop-OracleServiceOnPort -Port 8080
+    #>
+    [CmdletBinding()]
+    param(
+        [int] $Port = 5000
+    )
+
+    # Get-NetTCPConnection is available on Windows PowerShell 5.1+ and PS 7+.
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+
+    if ($null -eq $conn) {
+        Write-Verbose "Stop-OracleServiceOnPort: nothing listening on port $Port."
+        return
+    }
+
+    $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
+    if ($null -ne $proc) {
+        Write-Verbose "Stop-OracleServiceOnPort: stopping PID $($proc.Id) ($($proc.Name)) on port $Port."
+        $proc | Stop-Process -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -186,7 +257,7 @@ function Test-OracleReady {
         Port to check. Default: 5000.
 
     .OUTPUTS
-        bool — $true if ready within timeout, $false otherwise.
+        bool - $true if ready within timeout, $false otherwise.
 
     .EXAMPLE
         if (-not (Test-OracleReady -TimeoutSeconds 20)) { throw "Oracle not ready" }
@@ -219,7 +290,7 @@ function Test-OracleReady {
 function Invoke-OracleRender {
     <#
     .SYNOPSIS
-        POST /render — render a single Jinja2 template.
+        POST /render - render a single Jinja2 template.
 
     .DESCRIPTION
         Sends the template and context to the oracle and returns the rendered
@@ -241,11 +312,11 @@ function Invoke-OracleRender {
         Base URL of the oracle service. Default: http://localhost:5000.
 
     .PARAMETER AllowError
-        When specified, do not throw on oracle errors — return the full
+        When specified, do not throw on oracle errors - return the full
         response object instead (useful for testing error paths).
 
     .OUTPUTS
-        string — rendered output, or PSCustomObject when -AllowError is used.
+        string - rendered output, or PSCustomObject when -AllowError is used.
 
     .EXAMPLE
         $expected = Invoke-OracleRender -Template '{{ name | upper }}' -Context @{ name = 'world' }
@@ -295,7 +366,7 @@ function Invoke-OracleRender {
 function Invoke-OracleBatch {
     <#
     .SYNOPSIS
-        POST /batch — render multiple templates in a single request.
+        POST /batch - render multiple templates in a single request.
 
     .DESCRIPTION
         Accepts an array of request hashtables (same structure as /render)
@@ -308,7 +379,7 @@ function Invoke-OracleBatch {
         Base URL of the oracle service. Default: http://localhost:5000.
 
     .OUTPUTS
-        Object[] — array of oracle response objects.
+        Object[] - array of oracle response objects.
 
     .EXAMPLE
         $requests = @(
@@ -346,7 +417,7 @@ function Invoke-OracleBatch {
 function Invoke-OracleParse {
     <#
     .SYNOPSIS
-        POST /parse — parse a template and return its Jinja2 AST.
+        POST /parse - parse a template and return its Jinja2 AST.
 
     .PARAMETER Template
         Jinja2 template string.
@@ -358,7 +429,7 @@ function Invoke-OracleParse {
         Base URL of the oracle service. Default: http://localhost:5000.
 
     .OUTPUTS
-        PSCustomObject — oracle response with .ast property.
+        PSCustomObject - oracle response with .ast property.
 
     .EXAMPLE
         $resp = Invoke-OracleParse -Template '{% if x %}ok{% endif %}'
@@ -387,7 +458,7 @@ function Invoke-OracleParse {
 function Invoke-OracleValidate {
     <#
     .SYNOPSIS
-        POST /validate — validate template syntax without rendering.
+        POST /validate - validate template syntax without rendering.
 
     .DESCRIPTION
         Returns $true if the template is syntactically valid.
@@ -444,7 +515,7 @@ function Invoke-OracleValidate {
 function Get-OracleEnvironment {
     <#
     .SYNOPSIS
-        GET /environment — retrieve Jinja2 environment configuration.
+        GET /environment - retrieve Jinja2 environment configuration.
 
     .DESCRIPTION
         Returns the full environment object including Jinja2 version,
@@ -457,7 +528,7 @@ function Get-OracleEnvironment {
         Base URL of the oracle service. Default: http://localhost:5000.
 
     .OUTPUTS
-        PSCustomObject — oracle environment response.
+        PSCustomObject - oracle environment response.
 
     .EXAMPLE
         $env = Get-OracleEnvironment
@@ -475,13 +546,13 @@ function Get-OracleEnvironment {
 function Get-OracleCapabilities {
     <#
     .SYNOPSIS
-        GET /capabilities — retrieve the list of oracle capabilities.
+        GET /capabilities - retrieve the list of oracle capabilities.
 
     .PARAMETER OracleUrl
         Base URL of the oracle service. Default: http://localhost:5000.
 
     .OUTPUTS
-        PSCustomObject — capabilities response.
+        PSCustomObject - capabilities response.
 
     .EXAMPLE
         $caps = Get-OracleCapabilities

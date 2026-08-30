@@ -21,8 +21,6 @@ BeforeAll {
     try {
         $script:OracleProcess   = Start-OracleService -TimeoutSeconds 20
         $script:OracleAvailable = $true
-        $oraEnv = Get-OracleEnvironment
-        Write-Host "  [Oracle] Jinja2 $($oraEnv.version) / Python $($oraEnv.python_version)" -ForegroundColor DarkGray
     } catch {
         Write-Warning "Jinja2 Oracle unavailable — oracle assertions skipped.`n  Run: pwsh oracle/setup.ps1 -Start"
     }

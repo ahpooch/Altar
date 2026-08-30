@@ -55,6 +55,7 @@ Altar/
 │
 ├── Tests/
 │   ├── Integration/                 # Pester integration tests, one file per feature
+│   │   ├── AA_OracleSetup.Tests.ps1    # [RESERVED] starts Oracle once before all tests
 │   │   ├── BracketNotation.Tests.ps1
 │   │   ├── Call.Tests.ps1
 │   │   ├── Comment.Tests.ps1
@@ -75,7 +76,8 @@ Altar/
 │   │   ├── Ternary.Tests.ps1
 │   │   ├── TrailingNewlines.Tests.ps1
 │   │   ├── Variable.Tests.ps1
-│   │   └── WhitespaceControl.Tests.ps1
+│   │   ├── WhitespaceControl.Tests.ps1
+│   │   └── ZZ_OracleTeardown.Tests.ps1 # [RESERVED] stops Oracle after all tests
 │   ├── QA/                          # Unit tests for internal classes
 │   │   ├── LexerState.Tests.ps1
 │   │   └── Token.Tests.ps1
@@ -416,7 +418,7 @@ ScriptBlock — never call `AltarFilters` directly in templates.
 # All tests (from repo root)
 Invoke-Pester -Path .\Tests\ -Output Detailed
 
-# Only integration tests
+# Only integration tests (Oracle starts once, stops at end)
 Invoke-Pester -Path .\Tests\Integration\ -Output Detailed
 
 # Only QA (unit) tests
@@ -430,12 +432,39 @@ Invoke-Pester -Path .\Tests\ -Tag 'Integration' -Output Detailed
 Invoke-Pester -Path .\Tests\ -Tag 'CI'          -Output Detailed
 ```
 
+### Oracle lifecycle — one start, one stop
+
+When running the full `Tests/Integration/` suite, the Oracle starts **once** and
+stops **once**:
+
+```
+AA_OracleSetup.Tests.ps1    ← Start-OracleService() — real launch, Flask starts once
+BracketNotation.Tests.ps1   ← Start-OracleService() → $null  (already running)
+Call.Tests.ps1              ← Start-OracleService() → $null
+...                                                   (all 21 feature files)
+WhitespaceControl.Tests.ps1 ← Start-OracleService() → $null
+ZZ_OracleTeardown.Tests.ps1 ← AfterAll: Stop-OracleServiceOnPort(5000)
+```
+
+This works because `Start-OracleService` now performs a 2-second liveness check
+before starting a new process. If the port already answers, it returns `$null`.
+`Stop-OracleService -Process $null` is a deliberate no-op, so every feature
+file's existing `AfterAll` block remains correct without modification.
+
+**Reserved filenames** — do not add test files with these prefixes:
+- `AA_` — reserved for the Oracle setup fixture
+- `ZZ_` — reserved for the Oracle teardown fixture
+
+Pester discovers files alphabetically; these prefixes guarantee ordering.
+
 ### File naming and location
 
 | Pattern | Location | Tag |
 |---|---|---|
 | `FeatureName.Tests.ps1` | `Tests/Integration/` | `'Integration'` |
 | `ClassName.Tests.ps1` | `Tests/QA/` | `'CI'` |
+| `AA_OracleSetup.Tests.ps1` | `Tests/Integration/` | `'Integration'` |
+| `ZZ_OracleTeardown.Tests.ps1` | `Tests/Integration/` | `'Integration'` |
 
 ### Mandatory test boilerplate
 
