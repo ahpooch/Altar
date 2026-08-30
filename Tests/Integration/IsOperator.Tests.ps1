@@ -1,4 +1,4 @@
-# Integration tests for the 'is' operator — enhanced with Jinja2 Oracle validation
+﻿# Integration tests for the 'is' operator — enhanced with Jinja2 Oracle validation
 
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"

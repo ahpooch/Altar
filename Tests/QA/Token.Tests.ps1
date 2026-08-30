@@ -1,4 +1,8 @@
-# Invoke-Pester -Path .\Tests\QA\Token.Tests.ps1 -Output Detailed
+﻿# Invoke-Pester -Path .\Tests\QA\Token.Tests.ps1 -Output Detailed
+BeforeDiscovery {
+    . .\Altar.ps1
+}
+
 BeforeAll {
     . .\Altar.ps1
 }

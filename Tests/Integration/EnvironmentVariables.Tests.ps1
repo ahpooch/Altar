@@ -1,4 +1,4 @@
-# Environment Variables Integration Tests — enhanced with Jinja2 Oracle boilerplate
+﻿# Environment Variables Integration Tests — enhanced with Jinja2 Oracle boilerplate
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"
     . "$PSScriptRoot/../Helpers/OracleClient.ps1"

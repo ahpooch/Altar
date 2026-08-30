@@ -1,4 +1,4 @@
-# Integration tests for bracket notation (Jinja2 compatibility)
+﻿# Integration tests for bracket notation (Jinja2 compatibility)
 # Tests that foo['bar'] works identically to foo.bar
 
 BeforeAll {

@@ -1,4 +1,4 @@
-# Integration tests for Variable block functionality
+﻿# Integration tests for Variable block functionality
 # Enhanced with Jinja2 Oracle comparisons — the oracle provides canonical
 # reference outputs from a real Jinja2 implementation, removing the need
 # to hard-code expected strings manually and guaranteeing Jinja2 compatibility.

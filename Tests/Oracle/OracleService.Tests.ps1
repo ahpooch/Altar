@@ -1,4 +1,4 @@
-# Oracle self-tests — verify that the Jinja2 Oracle service itself returns
+﻿# Oracle self-tests — verify that the Jinja2 Oracle service itself returns
 # spec-compliant outputs grounded in the official Jinja2 documentation.
 #
 # These tests have NO dependency on Altar.ps1. They test the oracle only.

@@ -1,4 +1,4 @@
-# Integration tests for Line Statements functionality — enhanced with Jinja2 Oracle boilerplate
+﻿# Integration tests for Line Statements functionality — enhanced with Jinja2 Oracle boilerplate
 
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"

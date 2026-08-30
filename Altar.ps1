@@ -4746,7 +4746,15 @@ class AltarFilters {
     }
     
     # Indent each line by a given number of spaces
-    static [string]Indent([string]$value, [int]$width = 4, [bool]$indentFirstLine = $false) {
+    static [string]Indent([string]$value) {
+        return [AltarFilters]::Indent($value, 4, $false)
+    }
+
+    static [string]Indent([string]$value, [int]$width) {
+        return [AltarFilters]::Indent($value, $width, $false)
+    }
+
+    static [string]Indent([string]$value, [int]$width, [bool]$indentFirstLine) {
         $lines = $value -split "`r?`n"
         $indent = ' ' * $width
         
@@ -5531,6 +5539,10 @@ function Invoke-AltarTemplate {
                 Write-Error "Template file not found: $Path"
                 return
             }
+            
+            # Resolve to an absolute path so that [System.IO.File] (which uses
+            # [System.Environment]::CurrentDirectory, not $PWD) finds the file correctly.
+            $Path = (Resolve-Path -Path $Path).ProviderPath
             
             # Render the template using RenderFile which handles inheritance
             Write-Verbose "Rendering template from file"

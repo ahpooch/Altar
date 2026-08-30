@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 # Quick smoke test for the Jinja2 Oracle Service.
 # Assumes the service is already running on http://localhost:5000.
 
@@ -36,7 +36,7 @@ Show '/validate (syntax error)' (Invoke-RestMethod "$base/validate" -Method Post
 $batchBody = @(
     @{ request_id='b1'; template='{{ x + y }}'; context=@{x=1; y=2} }
     @{ request_id='b2'; template='{{ z }}';     context=@{} }
-) | ConvertTo-Json -Depth 5 -AsArray
+) | ConvertTo-Json -Depth 5
 Show '/batch' (Invoke-RestMethod "$base/batch" -Method Post -ContentType 'application/json' -Body $batchBody)
 
 # /capabilities

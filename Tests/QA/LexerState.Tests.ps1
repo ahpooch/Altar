@@ -1,4 +1,4 @@
-# Invoke-Pester -Path .\Tests\QA\LexerState.Tests.ps1 -Output Detailed
+﻿# Invoke-Pester -Path .\Tests\QA\LexerState.Tests.ps1 -Output Detailed
 BeforeAll {
     . .\Altar.ps1
 }

@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
     Sets up the Python virtual environment for the Jinja2 Oracle Service.
@@ -43,24 +43,25 @@ $AppPath   = Join-Path $OracleDir 'app.py'
 $ReqPath   = Join-Path $OracleDir 'requirements.txt'
 
 # Python executable varies by OS
-$PythonCmd = if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
+$PythonCmd = if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.Platform -eq 'Win32NT') {
     'python'
 } else {
     'python3'
 }
 
 # venv activation script path varies by OS
-$ActivateScript = if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
-    Join-Path $VenvDir 'Scripts' 'Activate.ps1'
+# Note: Join-Path with 3 arguments is PS 6+ only — use nested calls for PS 5.1 compat.
+$ActivateScript = if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.Platform -eq 'Win32NT') {
+    Join-Path (Join-Path $VenvDir 'Scripts') 'Activate.ps1'
 } else {
-    Join-Path $VenvDir 'bin' 'Activate.ps1'
+    Join-Path (Join-Path $VenvDir 'bin') 'Activate.ps1'
 }
 
 # Python binary inside venv varies by OS
-$VenvPython = if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
-    Join-Path $VenvDir 'Scripts' 'python.exe'
+$VenvPython = if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.Platform -eq 'Win32NT') {
+    Join-Path (Join-Path $VenvDir 'Scripts') 'python.exe'
 } else {
-    Join-Path $VenvDir 'bin' 'python'
+    Join-Path (Join-Path $VenvDir 'bin') 'python'
 }
 
 # ---------------------------------------------------------------------------

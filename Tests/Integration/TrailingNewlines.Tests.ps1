@@ -1,4 +1,4 @@
-# Integration tests for trailing-newline behaviour — Altar vs canonical Jinja2.
+﻿# Integration tests for trailing-newline behaviour — Altar vs canonical Jinja2.
 #
 # Each test calls Altar's renderer and then validates the result against the live
 # Jinja2 Oracle using Confirm-MatchesOracle.  Every failing test is therefore a

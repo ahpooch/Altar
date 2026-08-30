@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     PowerShell client for the Jinja2 Oracle Service.
 
@@ -45,6 +45,33 @@ Set-StrictMode -Version Latest
 
 $script:OracleBaseUrl = 'http://127.0.0.1:5000'
 
+# PS 5.1's Invoke-RestMethod decodes response bodies using the system code page
+# (cp1252 on Windows) instead of the UTF-8 declared in Content-Type.
+# This helper uses System.Net.WebRequest to force UTF-8 decoding on all versions.
+function script:Invoke-OracleHttp {
+    param(
+        [string] $Uri,
+        [string] $Method = 'GET',
+        [string] $Body   = $null
+    )
+    $req = [System.Net.WebRequest]::Create($Uri)
+    $req.Method = $Method
+    if ($Body) {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($Body)
+        $req.ContentType   = 'application/json; charset=utf-8'
+        $req.ContentLength = $bytes.Length
+        $stream = $req.GetRequestStream()
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Close()
+    }
+    $resp   = $req.GetResponse()
+    $reader = [System.IO.StreamReader]::new($resp.GetResponseStream(), [System.Text.Encoding]::UTF8)
+    $json   = $reader.ReadToEnd()
+    $reader.Close()
+    $resp.Close()
+    return $json | ConvertFrom-Json
+}
+
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
@@ -86,11 +113,12 @@ function Start-OracleService {
     $script:OracleBaseUrl = "http://127.0.0.1:$Port"
 
     # Resolve the venv Python binary (cross-platform)
+    # Note: Join-Path with 3 arguments is PS 6+ only — use nested calls for PS 5.1 compat.
     $venvDir    = Join-Path $OracleRoot '.venv'
-    $venvPython = if ($IsWindows -or $PSVersionTable.PSEdition -eq 'Desktop') {
-        Join-Path $venvDir 'Scripts' 'python.exe'
+    $venvPython = if ($PSVersionTable.PSEdition -eq 'Desktop' -or $PSVersionTable.Platform -eq 'Win32NT') {
+        Join-Path (Join-Path $venvDir 'Scripts') 'python.exe'
     } else {
-        Join-Path $venvDir 'bin' 'python'
+        Join-Path (Join-Path $venvDir 'bin') 'python'
     }
     $appPath = Join-Path $OracleRoot 'app.py'
 
@@ -98,14 +126,18 @@ function Start-OracleService {
     if (-not (Test-Path $venvPython)) {
         Write-Verbose "Oracle venv not found. Running setup..."
         $setupScript = Join-Path $OracleRoot 'setup.ps1'
-        & pwsh -File $setupScript
+        # Use the correct PowerShell host — pwsh (PS7+) or powershell.exe (PS5.1)
+        $psExe = if ($PSVersionTable.PSEdition -eq 'Desktop') { 'powershell' } else { 'pwsh' }
+        & $psExe -File $setupScript
     }
 
     Write-Verbose "Starting oracle on port $Port..."
-    $proc = Start-Process -FilePath $venvPython `
+    # -NoNewWindow runs the process in the current console without a new window.
+    # Start-Process -PassThru always returns immediately (non-blocking).
+    $proc = Start-Process -FilePath  $venvPython `
                           -ArgumentList $appPath, $Port `
                           -PassThru `
-                          -WindowStyle Hidden
+                          -NoNewWindow
 
     # Wait until /health is reachable
     if (-not (Test-OracleReady -TimeoutSeconds $TimeoutSeconds -Port $Port)) {
@@ -171,7 +203,7 @@ function Test-OracleReady {
 
     while ([datetime]::UtcNow -lt $deadline) {
         try {
-            $null = Invoke-RestMethod -Uri $url -Method Get -TimeoutSec 1 -ErrorAction Stop
+    $null = Invoke-OracleHttp -Uri $url -Method GET
             return $true
         } catch {
             Start-Sleep -Milliseconds 500
@@ -243,12 +275,10 @@ function Invoke-OracleRender {
     }
     if ($RequestId) { $body['request_id'] = $RequestId }
 
-    $response = Invoke-RestMethod `
-        -Uri         "$OracleUrl/render" `
-        -Method      Post `
-        -ContentType 'application/json' `
-        -Body        ($body | ConvertTo-Json -Depth 20) `
-        -ErrorAction Stop
+    $response = Invoke-OracleHttp `
+        -Uri    "$OracleUrl/render" `
+        -Method POST `
+        -Body   ($body | ConvertTo-Json -Depth 20)
 
     if ($AllowError) {
         return $response
@@ -297,14 +327,17 @@ function Invoke-OracleBatch {
         [string]   $OracleUrl = $script:OracleBaseUrl
     )
 
-    $json = $Requests | ConvertTo-Json -Depth 20 -AsArray
+    # ConvertTo-Json -AsArray is PS 6+ only; wrapping ensures array serialisation on PS 5.1.
+    $jsonArray = if ($Requests.Count -eq 1) {
+        '[' + ($Requests | ConvertTo-Json -Depth 20) + ']'
+    } else {
+        $Requests | ConvertTo-Json -Depth 20
+    }
 
-    $response = Invoke-RestMethod `
-        -Uri         "$OracleUrl/batch" `
-        -Method      Post `
-        -ContentType 'application/json' `
-        -Body        $json `
-        -ErrorAction Stop
+    $response = Invoke-OracleHttp `
+        -Uri    "$OracleUrl/batch" `
+        -Method POST `
+        -Body   $jsonArray
 
     return $response
 }
@@ -344,12 +377,10 @@ function Invoke-OracleParse {
     $body = [ordered]@{ template = $Template }
     if ($RequestId) { $body['request_id'] = $RequestId }
 
-    return Invoke-RestMethod `
-        -Uri         "$OracleUrl/parse" `
-        -Method      Post `
-        -ContentType 'application/json' `
-        -Body        ($body | ConvertTo-Json -Depth 20) `
-        -ErrorAction Stop
+    return Invoke-OracleHttp `
+        -Uri    "$OracleUrl/parse" `
+        -Method POST `
+        -Body   ($body | ConvertTo-Json -Depth 20)
 }
 
 
@@ -397,12 +428,10 @@ function Invoke-OracleValidate {
     $body = [ordered]@{ template = $Template }
     if ($RequestId) { $body['request_id'] = $RequestId }
 
-    $response = Invoke-RestMethod `
-        -Uri         "$OracleUrl/validate" `
-        -Method      Post `
-        -ContentType 'application/json' `
-        -Body        ($body | ConvertTo-Json -Depth 20) `
-        -ErrorAction Stop
+    $response = Invoke-OracleHttp `
+        -Uri    "$OracleUrl/validate" `
+        -Method POST `
+        -Body   ($body | ConvertTo-Json -Depth 20)
 
     if ($PassThru) { return $response }
     return [bool]$response.success
@@ -439,7 +468,7 @@ function Get-OracleEnvironment {
         [string] $OracleUrl = $script:OracleBaseUrl
     )
 
-    return Invoke-RestMethod -Uri "$OracleUrl/environment" -Method Get -ErrorAction Stop
+    return Invoke-OracleHttp -Uri "$OracleUrl/environment" -Method GET
 }
 
 
@@ -463,5 +492,5 @@ function Get-OracleCapabilities {
         [string] $OracleUrl = $script:OracleBaseUrl
     )
 
-    return Invoke-RestMethod -Uri "$OracleUrl/capabilities" -Method Get -ErrorAction Stop
+    return Invoke-OracleHttp -Uri "$OracleUrl/capabilities" -Method GET
 }

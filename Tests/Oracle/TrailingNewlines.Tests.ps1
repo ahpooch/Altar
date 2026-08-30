@@ -1,4 +1,4 @@
-# Oracle trailing-newline tests — verify that the Jinja2 Oracle returns exactly
+﻿# Oracle trailing-newline tests — verify that the Jinja2 Oracle returns exactly
 # the output a real Python/Jinja2 user on Linux would receive for every trailing-
 # newline edge-case documented in the Jinja2 whitespace-control specification.
 #
