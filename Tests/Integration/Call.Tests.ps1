@@ -44,24 +44,31 @@ Describe "Call Block Tests" -Tag 'Integration' {
 
     Context "Basic Call Block" {
         It "Should render call block with caller()" {
-            $template = @'
-{% macro render_dialog(title, class='dialog') -%}
+            $template = @"
+{%- macro render_dialog(title, class='dialog') -%}
     <div class="{{ class }}">
         <h2>{{ title }}</h2>
         <div class="contents">{{ caller() }}</div>
     </div>
-{%- endmacro %}
+{%- endmacro -%}
 
 {% call render_dialog('Hello World') %}
     This is a simple dialog.
 {% endcall %}
-'@
+"@
             $context = @{}
-            $engine = [TemplateEngine]::new()
-            $result = $engine.Render($template, $context)
-            $result | Should -Match '<div class="dialog">'
-            $result | Should -Match '<h2>Hello World</h2>'
-            $result | Should -Match 'This is a simple dialog\.'
+            $result = Invoke-AltarTemplate -Template $template -Context $context
+            
+            $expect = @"
+<div class="dialog">
+        <h2>Hello World</h2>
+        <div class="contents">
+    This is a simple dialog.
+</div>
+    </div>
+"@
+            
+            $result | Should -Be $expect
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
 
@@ -140,9 +147,9 @@ Describe "Call Block Tests" -Tag 'Integration' {
             $engine = [TemplateEngine]::new()
             $result = $engine.Render($template, $context)
 
-            $result | Should -Match '<li>.*ALICE.*</li>'
-            $result | Should -Match '<li>.*BOB.*</li>'
-            $result | Should -Match '<li>.*CHARLIE.*</li>'
+            $result | Should -Match '(?s)<li>.*ALICE.*</li>'
+            $result | Should -Match '(?s)<li>.*BOB.*</li>'
+            $result | Should -Match '(?s)<li>.*CHARLIE.*</li>'
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
@@ -207,9 +214,9 @@ Describe "Call Block Tests" -Tag 'Integration' {
             $result = $engine.Render($template, $context)
 
             $result | Should -Match '<div class="outer">'
-            $result | Should -Match '<span>.*Item.*: A</span>'
-            $result | Should -Match '<span>.*Item.*: B</span>'
-            $result | Should -Match '<span>.*Item.*: C</span>'
+            $result | Should -Match '(?s)<span>.*Item.*: A</span>'
+            $result | Should -Match '(?s)<span>.*Item.*: B</span>'
+            $result | Should -Match '(?s)<span>.*Item.*: C</span>'
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }

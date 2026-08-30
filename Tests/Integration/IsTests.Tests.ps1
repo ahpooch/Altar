@@ -331,7 +331,11 @@ Describe "Is Operator - sameas Test" {
         $context = @{ obj1 = $obj; obj2 = $obj }
         $result = Invoke-AltarTemplate -Template $template -Context $context
         $result | Should -Be "same"
-        Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
+        # NOTE: Oracle comparison intentionally omitted — object identity cannot
+        # survive JSON serialisation. The Oracle deserialises both fields as two
+        # separate dict objects, so its 'sameas' (Python 'is') always returns
+        # False here, giving "different". Altar's [object]::ReferenceEquals is
+        # the correct implementation per the Jinja2 spec for this scenario.
     }
 
     It "Should test 'sameas' - different object references" {

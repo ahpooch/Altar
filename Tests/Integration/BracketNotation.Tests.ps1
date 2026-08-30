@@ -253,7 +253,7 @@ Describe "Bracket Notation Tests" {
         
         It "Should support variable as index" {
             $template = @"
-{% set key = 'name' %}
+{%- set key = 'name' -%}
 {{ user[key] }}
 "@
             $context = @{
@@ -264,7 +264,7 @@ Describe "Bracket Notation Tests" {
             }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Bob"
+            $result | Should -Be "Bob"
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
@@ -284,11 +284,11 @@ Describe "Bracket Notation Tests" {
         
         It "Should work in if conditions" {
             $template = @"
-{% if user['active'] %}
+{%- if user['active'] -%}
 Active
-{% else %}
+{%- else -%}
 Inactive
-{% endif %}
+{%- endif -%}
 "@
             $context = @{
                 user = @{
@@ -297,15 +297,15 @@ Inactive
             }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Active"
+            $result | Should -Be "Active"
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work in for loops" {
             $template = @"
-{% for item in items %}
+{%- for item in items %}
 {{ item['name'] }}
-{% endfor %}
+{%- endfor -%}
 "@
             $context = @{
                 items = @(
@@ -316,15 +316,23 @@ Inactive
             }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() -replace '\s+', ' ' | Should -Be "Item1 Item2 Item3"
+            
+            $expected = @"
+
+Item1
+Item2
+Item3
+"@
+
+            $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with loop variable" {
             $template = @"
-{% for item in items %}
+{%- for item in items %}
 {{ loop['index'] }}: {{ item['name'] }}
-{% endfor %}
+{%- endfor -%}
 "@
             $context = @{
                 items = @(
@@ -334,7 +342,14 @@ Inactive
             }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() -replace '\s+', ' ' | Should -Be "1: A 2: B"
+            
+            $expected = @"
+
+1: A
+2: B
+"@
+            
+            $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
@@ -452,9 +467,9 @@ Equal: {{ user.name == user['name'] }}
         
         It "Should produce identical results with filters" {
             $template = @"
-{% set dot_result = user.name | upper %}
-{% set bracket_result = user['name'] | upper %}
-{{ dot_result == bracket_result }}
+{%- set dot_result = user.name | upper -%}
+{%- set bracket_result = user['name'] | upper -%}
+{{- dot_result == bracket_result -}}
 "@
             $context = @{
                 user = @{
@@ -463,7 +478,7 @@ Equal: {{ user.name == user['name'] }}
             }
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "True"
+            $result | Should -Be "True"
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }

@@ -399,11 +399,7 @@ Describe 'Trailing-Newline Behaviour Integration Tests' -Tag 'Integration' {
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
 
-        # BUG: Altar fails to parse `not` as a unary prefix operator when it appears
-        # directly before a property-access expression such as `loop.last`.
-        # The compiler throws: "Unexpected keyword in expression: not"
-        # Tracked as a known parser bug — unskip when fixed.
-        It 'comma-separated items using loop.last produces no trailing comma' -Skip {
+        It 'comma-separated items using loop.last produces no trailing comma' {
             $template = '{% for i in items %}{{ i }}{% if not loop.last %},{% endif %}{% endfor %}'
             $context  = @{ items = @(1, 2, 3) }
             $result   = AltarRender -Template $template -Context $context

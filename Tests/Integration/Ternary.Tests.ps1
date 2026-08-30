@@ -683,6 +683,7 @@ Result: {{ 'defined' if defined_var else 'undefined' }}
 Item1: Active
 Item2: Inactive
 Item3: Active
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -690,9 +691,9 @@ Item3: Active
         
         It "Works with if statement" {
             $template = @"
-{% if show_status -%}
+{%- if show_status %}
 Status: {{ 'Online' if is_online else 'Offline' }}
-{% endif -%}
+{%- endif -%}
 "@
             $context = @{
                 show_status = $true
@@ -701,7 +702,10 @@ Status: {{ 'Online' if is_online else 'Offline' }}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            $expected = "Status: Online"
+            $expected = @"
+
+Status: Online
+"@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
@@ -742,6 +746,7 @@ Status: {{ 'Online' if is_online else 'Offline' }}
 Alice: Admin
 Bob: User
 Charlie: Admin
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -859,6 +864,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
 ✓ Write tests
 ○ Review code
 ○ Deploy
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -920,6 +926,7 @@ Price: ${{ discounted_price if has_discount else regular_price }}
 A: Yes / Off
 B: No / On
 C: Yes / On
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result

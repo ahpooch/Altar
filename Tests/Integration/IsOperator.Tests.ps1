@@ -63,7 +63,7 @@ Describe "Is Operator Tests" -Tag 'Integration' {
         }
         
         It "Should work with 'is not defined'" {
-            $template = "{% if undefined_var is not defined %}not defined{% else %}defined{% endif %}"
+            $template = "{%- if undefined_var is not defined %}not defined{%- else %}defined{% endif %}"
             $context = @{}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
@@ -96,6 +96,9 @@ Describe "Is Operator Tests" -Tag 'Integration' {
         }
         
         It "Should work with 'is null' (alias for 'is none')" {
+            # NOTE: 'is null' is an Altar-specific extension — Jinja2 only knows 'is none'.
+            # Do NOT call Confirm-MatchesOracle here; the Oracle would throw
+            # "No test named 'null' found." because 'null' is not a standard Jinja2 test.
             $template = "{% if my_var is null %}is null{% else %}not null{% endif %}"
             $context = @{
                 my_var = $null
@@ -103,7 +106,6 @@ Describe "Is Operator Tests" -Tag 'Integration' {
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             $result | Should -Be "is null"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should work with 'is not none'" {
@@ -276,25 +278,29 @@ Describe "Is Operator Tests" -Tag 'Integration' {
         It "Should work with variables set in template" {
             $template = @"
 {% set my_var = 'hello' %}
-{% if my_var is defined %}defined{% else %}not defined{% endif %}
+{%- if my_var is defined %}defined{%- else %}not defined{% endif %}
 "@
             $context = @{}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "defined"
+            $result | Should -Be "defined"
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
         
         It "Should work with null values set in template" {
+            # NOTE: '{% set my_var = null %}' is an Altar extension: Altar treats 'null' as
+            # a keyword (= $null), so 'my_var is none' is true.  In Jinja2, 'null' is NOT a
+            # keyword — it would be resolved as an undefined variable, making 'my_var is none'
+            # false.  Do NOT call Confirm-MatchesOracle here; use '{% set my_var = none %}'
+            # in oracle-validated tests.
             $template = @"
 {% set my_var = null %}
-{% if my_var is none %}is none{% else %}not none{% endif %}
+{%- if my_var is none %}is none{%- else %}not none{% endif %}
 "@
             $context = @{}
-            
+  
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "is none"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "is none"
         }
     }
     

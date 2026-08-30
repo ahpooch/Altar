@@ -368,7 +368,7 @@ Line 1
             # -}} removes whitespace after the tag (newline), pulling the next line up
             $expected = @"
 Line 1
-VALUE    Line 2
+VALUELine 2
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -422,31 +422,40 @@ End
     Context "Integration with Other Constructs" {
         It "Uses variable inside if block" {
             $template = @"
-{% if show -%}
+{%- if show %}
 Value: {{ value }}
-{% endif -%}
+{%- endif %}
 "@
             $context = @{ show = $true; value = "Displayed" }
 
             $result = Invoke-AltarTemplate -Template $template -Context $context
 
-            $result | Should -Be "Value: Displayed"
+            $expected = @"
+
+Value: Displayed
+"@
+
+            $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
 
         It "Uses variable inside else block" {
             $template = @"
-{% if show -%}
+{%- if show %}
 If value
-{% else -%}
+{%- else %}
 Else: {{ value }}
-{% endif -%}
+{%- endif %}
 "@
             $context = @{ show = $false; value = "ElseValue" }
 
             $result = Invoke-AltarTemplate -Template $template -Context $context
 
-            $result | Should -Be "Else: ElseValue"
+            $expected = @"
+
+Else: ElseValue
+"@
+            $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
 
@@ -464,6 +473,7 @@ Item: {{ item }}
 Item: A
 Item: B
 Item: C
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -483,6 +493,7 @@ Item: C
 Item: 1
 Item: 2
 Item: 3
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result

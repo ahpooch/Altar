@@ -131,7 +131,7 @@ Describe "Self Variable - With Filters" {
     
     It "Should work with multiple filters on self calls" {
         $template = @'
-{% block text %}  hello world  {% endblock %}
+{% block text %}hello world{% endblock %}
 
 {{ self.text() | trim | upper }}
 '@
@@ -139,7 +139,13 @@ Describe "Self Variable - With Filters" {
         $context = @{}
         $result = Invoke-AltarTemplate -Template $template -Context $context
         
-        $result | Should -Match "HELLO WORLD"
+        $expected = @"
+hello world
+
+HELLO WORLD
+"@
+
+        $result | Should -Be $expected
         Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
     }
 }

@@ -44,16 +44,16 @@ Describe "Macro Tests" -Tag 'Integration' {
     Context "Basic Macro Definition and Call" {
         It "Should define and call a simple macro" {
             $template = @"
-{% macro greeting(name) %}
+{%- macro greeting(name) -%}
 Hello, {{ name }}!
-{% endmacro %}
+{%- endmacro -%}
 
 {{ greeting('World') }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Hello, World!"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Hello, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should call macro multiple times" {
@@ -76,76 +76,76 @@ Hello, {{ name }}!
     Context "Macro with Multiple Parameters" {
         It "Should handle multiple positional parameters" {
             $template = @"
-{% macro user_info(name, age, city) %}
+{%- macro user_info(name, age, city) -%}
 Name: {{ name }}, Age: {{ age }}, City: {{ city }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ user_info('Alice', 30, 'New York') }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Name: Alice, Age: 30, City: New York"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Name: Alice, Age: 30, City: New York"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
     Context "Macro with Default Parameters" {
         It "Should use default parameter values" {
             $template = @"
-{% macro greeting(name, salutation='Hello') %}
+{%- macro greeting(name, salutation='Hello') -%}
 {{ salutation }}, {{ name }}!
-{% endmacro %}
+{%- endmacro -%}
 
 {{ greeting('World') }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Hello, World!"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Hello, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should override default parameter values" {
             $template = @"
-{% macro greeting(name, salutation='Hello') %}
+{%- macro greeting(name, salutation='Hello') -%}
 {{ salutation }}, {{ name }}!
-{% endmacro %}
+{%- endmacro -%}
 
 {{ greeting('World', 'Hi') }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Hi, World!"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Hi, World!"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
     Context "Macro with Named Arguments" {
         It "Should handle named arguments" {
             $template = @"
-{% macro user_info(name, age, city) %}
+{%- macro user_info(name, age, city) -%}
 Name: {{ name }}, Age: {{ age }}, City: {{ city }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ user_info(city='Tokyo', name='Bob', age=25) }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Name: Bob, Age: 25, City: Tokyo"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Name: Bob, Age: 25, City: Tokyo"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should mix positional and named arguments" {
             $template = @"
-{% macro user_info(name, age, city) %}
+{%- macro user_info(name, age, city) -%}
 Name: {{ name }}, Age: {{ age }}, City: {{ city }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ user_info('Charlie', city='London', age=35) }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Name: Charlie, Age: 35, City: London"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Name: Charlie, Age: 35, City: London"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -190,30 +190,30 @@ Status: {{ status(true) }}
     Context "Macro with Filters" {
         It "Should apply filters to macro output" {
             $template = @"
-{% macro shout(text) %}
+{%- macro shout(text) -%}
 {{ text }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ shout('hello world') | upper }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "HELLO WORLD"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "HELLO WORLD"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
         
         It "Should use filters inside macro" {
             $template = @"
-{% macro format_name(name) %}
+{%- macro format_name(name) -%}
 {{ name | upper }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ format_name('alice') }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "ALICE"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "ALICE"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
@@ -232,17 +232,17 @@ Outer: {{ inner(text) }}
 "@
             $context = @{}
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "Outer: [test]"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "Outer: [test]"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
     
     Context "Macro with Context Variables" {
         It "Should access context variables from macro" {
             $template = @"
-{% macro show_user() %}
+{%- macro show_user() -%}
 User: {{ username }}
-{% endmacro %}
+{%- endmacro -%}
 
 {{ show_user() }}
 "@
@@ -250,8 +250,8 @@ User: {{ username }}
                 username = 'JohnDoe'
             }
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "User: JohnDoe"
-            Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
+            $result | Should -Be "User: JohnDoe"
+            Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
         }
     }
 }

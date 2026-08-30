@@ -1,4 +1,4 @@
-# Integration tests for Raw block functionality — enhanced with Jinja2 Oracle validation
+﻿# Integration tests for Raw block functionality — enhanced with Jinja2 Oracle validation
 BeforeAll {
     . "$PSScriptRoot/../../Altar.ps1"
     . "$PSScriptRoot/../Helpers/OracleClient.ps1"
@@ -94,6 +94,7 @@ Last line.
 {{ variable }}
 {{ another.variable }}
 {{ object.property }}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -118,6 +119,7 @@ Last line.
 {% for item in items %}
 {% endif %}
 {% endfor %}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -144,6 +146,7 @@ Multi-line comment
 {#
 Multi-line comment
 -#}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -189,6 +192,7 @@ Normal content
 
 Raw content at end
 {{ variable }}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -318,7 +322,6 @@ End
 Start
 
 Raw content
-    
 End
 "@
             $result | Should -Be $expected
@@ -341,7 +344,7 @@ Raw content
 Start
 
 Raw content
-    End
+End
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -362,8 +365,7 @@ End
             $expected = @"
 Start
 
-Raw content
-    End
+Raw contentEnd
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -381,14 +383,8 @@ After
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
             
-            # {%- removes whitespace before opening tag
-            # -%} after {% raw %} removes newline after it
-            # Raw content is preserved as-is (including newline before {%- endraw)
-            # {%- before endraw doesn't affect raw content (it's already collected)
-            # -%} after endraw removes whitespace after closing tag
             $expected = @"
-BeforeRaw content
-    After
+BeforeRaw contentAfter
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -473,6 +469,7 @@ Last
 PROCESSED
 
 {{ also_unprocessed }}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -516,6 +513,7 @@ Block 3
 Hello
 
 {{ unprocessed }}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -569,6 +567,7 @@ First
 {{ raw_content }}
 
 Last
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -601,6 +600,7 @@ Last
 
 3
 4
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -612,7 +612,7 @@ Last
 {% raw %}
 {# This comment is preserved #}
 {% endraw %}
-{# Comment after -#}
+{#- Comment after -#}
 "@
             $context = @{}
             
@@ -621,6 +621,7 @@ Last
             $expected = @"
 
 {# This comment is preserved #}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -641,6 +642,7 @@ Special chars: @#$%^&*()[]{}|<>?/\~`!-+=_;:'"
             $expected = @"
 
 Special chars: @#$%^&*()[]{}|<>?/\~`!-+=_;:'"
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -661,6 +663,7 @@ Comparison: x > 5 && y < 10
 
 Math: 1 + 2 = 3
 Comparison: x > 5 && y < 10
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -683,6 +686,7 @@ Comparison: x > 5 && y < 10
     Indented line 1
         More indented line 2
     Back to first indent
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -711,6 +715,7 @@ Line 3 (line 2 was empty)
 
 
 Line 6 (lines 4-5 were empty)
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -735,6 +740,7 @@ Variables: {{ var1 }}, {{ var2.prop }}
 Statements: {% if x %}, {% for i in list %}
 Comments: {# comment #}, {#- trimmed -#}
 Filters: {{ value | upper | trim }}
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -763,6 +769,7 @@ Filters: {{ value | upper | trim }}
   <button>Click</button>
   {% endif %}
 </div>
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result
@@ -791,6 +798,7 @@ function example() {
     return x;
   }
 }
+
 "@
             $result | Should -Be $expected
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult $result

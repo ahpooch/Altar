@@ -134,12 +134,12 @@ Describe "In Operator Tests" -Tag 'Integration' {
         It "Should work with variables set in template" {
             $template = @"
 {% set fruits = ['apple', 'banana', 'orange'] %}
-{% if 'apple' in fruits %}found{% else %}not found{% endif %}
+{%- if 'apple' in fruits %}found{%- else %}not found{% endif %}
 "@
             $context = @{}
             
             $result = Invoke-AltarTemplate -Template $template -Context $context
-            $result.Trim() | Should -Be "found"
+            $result | Should -Be "found"
             Confirm-MatchesOracle -Template $template -Context $context -AltarResult ($result.Trim())
         }
     }

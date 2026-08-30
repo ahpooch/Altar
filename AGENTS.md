@@ -73,6 +73,7 @@ Altar/
 │   │   ├── Raw.Tests.ps1
 │   │   ├── Self.Tests.ps1
 │   │   ├── Ternary.Tests.ps1
+│   │   ├── TrailingNewlines.Tests.ps1
 │   │   ├── Variable.Tests.ps1
 │   │   └── WhitespaceControl.Tests.ps1
 │   ├── QA/                          # Unit tests for internal classes
@@ -191,6 +192,7 @@ All classes are defined in `Altar.ps1` in the order shown below.
 | `PropertyAccessNode` | Dot access (`object.property`) |
 | `IndexAccessNode` | Bracket access (`array[0]`, `dict['key']`) |
 | `BinaryOpNode` | Binary operator (`+`, `-`, `==`, `and`, `in`, …) |
+| `UnaryOpNode` | Unary operator (`not x`) |
 | `FilterNode` | Filter application (`value \| filter(args…)`) |
 | `ConditionalExpressionNode` | Ternary (`x if condition else y`) |
 | `IsTestNode` | `is` test (`value is defined`, `value is divisibleby(3)`) |
@@ -833,5 +835,5 @@ dynamically. Future Jinja2 upgrades are then automatically caught.
 
 ---
 
-*Last updated: 2026-08-29 | Maintained for the Altar project*
+*Last updated: 2026-08-30 | Maintained for the Altar project*
 

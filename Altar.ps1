@@ -990,10 +990,12 @@ class Lexer {
             if ($state.Peek() -eq '{' -and $state.PeekOffset(1) -eq '%') {
                 # Look ahead to see if this is {% endraw %} or {%- endraw %}
                 $tempPos = $state.Position + 2
+                $hasTrimLeft = $false
                 
                 # Skip optional '-' for {%- endraw %}
                 if (($tempPos -lt $state.Text.Length) -and ($state.Text[$tempPos] -eq '-')) {
                     $tempPos++
+                    $hasTrimLeft = $true
                 }
                 
                 # Skip whitespace
@@ -1008,6 +1010,11 @@ class Lexer {
                         # Found {% endraw %} - extract the raw content
                         $rawContent = $state.Text.Substring($startPos, $state.Position - $startPos)
                         
+                        # {%- endraw trims trailing whitespace from raw content; TrimWhitespaceBefore
+                        # cannot do this because the last token is RAW_CONTENT, not TEXT.
+                        if ($hasTrimLeft) {
+                            $rawContent = $rawContent -replace '[\s]+$', ''
+                        }
                         # Add RAW_CONTENT token
                         $tokens.Add([Token]::new([TokenType]::RAW_CONTENT, $rawContent, $state.StartLine, $state.StartColumn, $state.Filename))
                         
@@ -1118,6 +1125,17 @@ class BinaryOpNode : ExpressionNode {
         $this.Operator = $operator
         $this.Left = $left
         $this.Right = $right
+    }
+}
+
+# Represents a unary operation (e.g., not x)
+class UnaryOpNode : ExpressionNode {
+    [string]$Operator           # The operator (e.g., not)
+    [ExpressionNode]$Operand    # The operand
+
+    UnaryOpNode([string]$operator, [ExpressionNode]$operand, [int]$line, [int]$column, [string]$filename) : base($line, $column, $filename) {
+        $this.Operator = $operator
+        $this.Operand = $operand
     }
 }
 
@@ -2637,17 +2655,28 @@ class Parser {
     # Parse logical AND expressions (e.g., a and b)
     # Higher precedence than OR but lower than comparison operators
     [ExpressionNode]ParseLogicalAnd() {
-        $left = $this.ParseComparison()  # Parse the left operand (higher precedence)
+        $left = $this.ParseLogicalNot()  # Parse the left operand (higher precedence)
         
         # Look for AND operators and build a binary operation tree
         while ($this.MatchTypeValue([TokenType]::KEYWORD, "and")) {
             $operator = $this.Consume()  # Consume the 'and' operator
-            $right = $this.ParseComparison()  # Parse the right operand
+            $right = $this.ParseLogicalNot()  # Parse the right operand
             # Create a binary operation node with the left and right operands
             $left = [BinaryOpNode]::new($operator.Value, $left, $right, $operator.Line, $operator.Column, $operator.Filename)
         }
         
         return $left
+    }
+    
+    # Parse logical NOT expressions (e.g., not x, not loop.last)
+    # Higher precedence than AND but lower than comparison operators
+    [ExpressionNode]ParseLogicalNot() {
+        if ($this.MatchTypeValue([TokenType]::KEYWORD, "not")) {
+            $notToken = $this.Consume()  # Consume 'not'
+            $operand = $this.ParseLogicalNot()  # Allow chaining: not not x
+            return [UnaryOpNode]::new("not", $operand, $notToken.Line, $notToken.Column, $notToken.Filename)
+        }
+        return $this.ParseComparison()
     }
     
     # Parse comparison expressions (e.g., a == b, x > y, 'item' in list)
@@ -3975,17 +4004,11 @@ class PowershellCompiler {
             # Replace $output with $__macro_output__
             $macroCode = $macroCode.Replace('$output.Append', '$__macro_output__.Append')
             
-            # Add the modified code
-            $lines = $macroCode -split "`r?`n"
-            foreach ($line in $lines) {
-                if (-not [string]::IsNullOrWhiteSpace($line)) {
-                    $this.AppendLine($line.TrimEnd())
-                }
-            }
+            $this.Code.Append($macroCode) | Out-Null
         }
         
-        # Return macro output (trim trailing newline for cleaner output)
-        $this.AppendLine("return `$__macro_output__.ToString().TrimEnd(""`r"", ""`n"")")
+        # Return macro output
+        $this.AppendLine("return `$__macro_output__.ToString()")
         
         $this.IndentLevel--
         $this.AppendLine("}")
@@ -4027,22 +4050,10 @@ class PowershellCompiler {
             # Replace $output with $__caller_output__
             $callerCode = $callerCode.Replace('$output.Append', '$__caller_output__.Append')
             
-            # Add the modified code
-            $lines = $callerCode -split "`r?`n"
-            foreach ($line in $lines) {
-                if (-not [string]::IsNullOrWhiteSpace($line)) {
-                    $this.AppendLine($line.TrimEnd())
-                }
-            }
+            $this.Code.Append($callerCode) | Out-Null
         }
         
-        $this.AppendLine("`$__caller_result__ = `$__caller_output__.ToString()")
-        $this.AppendLine("# Remove all whitespace and newlines, then trim")
-        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '[\r\n\s]+', ' '")
-        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '\s+<', '<'")
-        $this.AppendLine("`$__caller_result__ = `$__caller_result__ -replace '>\s+', '>'")
-        $this.AppendLine("`$__caller_result__ = `$__caller_result__.Trim()")
-        $this.AppendLine("return `$__caller_result__")
+        $this.AppendLine("return `$__caller_output__.ToString()")
         
         $this.IndentLevel--
         $this.AppendLine("}")
@@ -4186,6 +4197,11 @@ class PowershellCompiler {
                 
                 return "($left $operator $right)"
             }
+            "UnaryOpNode" {
+                $unaryOp = [UnaryOpNode]$node
+                $operand = $this.VisitExpression($unaryOp.Operand)
+                return "(-not $operand)"
+            }
             "FilterNode" {
                 $filterNode = [FilterNode]$node
                 $expr = $this.VisitExpression($filterNode.Expression)
@@ -4295,8 +4311,16 @@ class PowershellCompiler {
                 # Generate PowerShell code based on the test type
                 $testCode = switch ($testName) {
                     'defined' {
-                        # Check if variable is defined (not null)
-                        "(`$null -ne $expr)"
+                        # Use Get-Variable to distinguish "undefined" from "set to $null".
+                        # ($null -ne $expr) would throw under Set-StrictMode when the variable
+                        # doesn't exist, causing EmitCondition's catch block to swallow the error
+                        # and return $false — which breaks "is not defined" negation.
+                        if ($isTest.Expression -is [VariableNode]) {
+                            $vName = ([VariableNode]$isTest.Expression).Name
+                            "(`$null -ne (Get-Variable -Name '$vName' -ErrorAction SilentlyContinue))"
+                        } else {
+                            "(`$null -ne $expr)"
+                        }
                     }
                     'none' {
                         # Check if value is null
@@ -4359,8 +4383,15 @@ class PowershellCompiler {
                         "($expr -is [string] -and $expr -ceq $expr.ToUpper())"
                     }
                     'undefined' {
-                        # Check if variable is undefined (null) - opposite of 'defined'
-                        "(`$null -eq $expr)"
+                        # Use Get-Variable to distinguish "undefined" from "set to $null".
+                        # Mirrors the 'defined' fix: without this, "is not undefined" would
+                        # also be broken under Set-StrictMode.
+                        if ($isTest.Expression -is [VariableNode]) {
+                            $vName = ([VariableNode]$isTest.Expression).Name
+                            "(`$null -eq (Get-Variable -Name '$vName' -ErrorAction SilentlyContinue))"
+                        } else {
+                            "(`$null -eq $expr)"
+                        }
                     }
                     'callable' {
                         # Check if value is callable (scriptblock or function)
